@@ -40,9 +40,9 @@ Legacy по лампе больше не развивается и архиво�
   (не установленная копия). Установленная копия после проверки удалена —
   решите, какую копию считать рабочей.
 - Основной репозиторий — `OnAirSwitch` (бывший `OnAirMeeting`), remote
-  `origin` = `git@github.com:vladimirovichivan/OnAirSwitch.git`. Отправка ждёт
-  добавления SSH-ключа `~/.ssh/github_onair.pub` в GitHub. Форк `Portable`
-  создаётся позже.
+  `origin` = `git@github.com:vladimirovichivan/OnAirSwitch.git`; `main` отправлен
+  16.11.2026 и отслеживает `origin/main`, SSH-ключ `~/.ssh/github_onair`.
+  Форк `Portable` создаётся позже.
 
 ## Задача
 
