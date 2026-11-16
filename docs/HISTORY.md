@@ -56,6 +56,35 @@
 подмена адреса на недостижимый → `address rediscovered` и успешное чтение;
 dry-run в изолированном процессе устройство не опрашивает.
 
+## Сборка поставки и установщик (16.11.2026)
+
+Фаза 3 плана. Компиляции кода нет: копируются `.py`/`.ps1`, рядом лежит
+embeddable-Python и `vendor`.
+
+- `packaging\build.ps1` скачивает `python-3.12.10-embed-amd64.zip`, ставит
+  зависимости в `build\vendor`, проверяет импорты в готовой раскладке, рисует
+  `onair.ico`, собирает портативную папку/zip и установщик, пишет
+  `build\SHA256SUMS.txt`;
+- в `python312._pth` добавлена строка `..\app\scripts\meetings`: embeddable-Python
+  не добавляет каталог скрипта сам, иначе не находятся `plug_control` и
+  `tuya_discovery`;
+- установлен Inno Setup 7.1.1 per-user (`%LOCALAPPDATA%\Programs\Inno Setup 7`);
+  `build.ps1` ищет 7, затем 6;
+- `tools\report_support.py` и `packaging\report.cmd` собирают архив для поддержки
+  на рабочем столе: журналы и состояния + `info.txt` без `local_key` и `dev_id`;
+- артефакты: `build\OnAirLamp-1.0.0-win64.zip`, `build\OnAirLamp-Setup-1.0.0.exe`.
+
+Проверено на этом ПК:
+
+- портативная копия в отдельном каталоге отработала встречи в Толке и Zoom без
+  участия `D:\onair-lamp`;
+- установка `/VERYSILENT`: приложение в `%LOCALAPPDATA%\Programs\OnAirLamp`,
+  ярлыки, автозапуск `HKCU\…\Run`, запуск и управление розеткой;
+- повторная установка сохраняет `local_key` и журналы;
+- удаление убирает автозапуск и ярлыки, данные и `secrets` оставляет;
+- архив поддержки не содержит значений `local_key` и `dev_id` (проверено
+  поиском по содержимому zip).
+
 ## Исправление Zoom 7.1 (16.11.2026)
 
 Отдельного решения нет — исправление зафиксировано в `D:\Legacy\docs\current_state.md`

@@ -1,7 +1,7 @@
 # План: автономная сборка и передача другим ПК
 
 **Дата:** 16.11.2026.
-**Статус:** фазы 0–2 закрыты; следующая — фаза 3 (сборка поставки).
+**Статус:** фазы 0–3 закрыты; следующая — фаза 4 (приёмка на чужих ПК).
 **Основание:** D-62/D-63 (Legacy), D-64/D-65 (источник истины и форк поставки)
 и перенос проекта в `D:\onair-lamp`.
 
@@ -159,7 +159,7 @@ assume_yes=True, byID=True)` и выбор по `dev_id`; поведение н�
 **Готово:** проверка проходит на реальном устройстве, ошибки печатаются
 по-русски и с действием, в выводе и журналах нет ключей.
 
-### Фаза 3. Сборка поставки
+### Фаза 3. Сборка поставки — выполнено 16.11.2026
 
 1. `packaging\build.ps1`:
    - скачать `python-3.12.10-embed-amd64.zip` (python.org) в `build\python`;
@@ -170,8 +170,11 @@ assume_yes=True, byID=True)` и выбор по `dev_id`; поведение н�
    - собрать `app\build.json` (версия, дата, короткий хеш);
    - сгенерировать `onair.ico` из той же картинки, что рисует трей (Pillow);
    - вызвать `iscc packaging\OnAirLamp.iss`; сложить хеши в `SHA256SUMS.txt`.
-2. `python312._pth`: строки `python312.zip`, `.`, `..\vendor`; строку
-   `import site` не включать (лишние пользовательские `site-packages` не нужны).
+2. `python312._pth`: строки `python312.zip`, `.`, `..\vendor`,
+   `..\app\scripts\meetings`; строку `import site` не включать (лишние
+   пользовательские `site-packages` не нужны). Каталог скрипта embeddable-Python
+   сам не добавляет — без последней строки не находятся `plug_control` и
+   `tuya_discovery`.
 3. `OnAirLamp.iss`:
    - `PrivilegesRequired=lowest`, `DefaultDirName={localappdata}\Programs\OnAirLamp`;
    - ярлыки: «OnAir Lamp» (`wscript.exe start.vbs`), «Настройка» (`setup.cmd`),
@@ -192,6 +195,38 @@ assume_yes=True, byID=True)` и выбор по `dev_id`; поведение н�
 **Готово когда:** установщик ставится в `%LOCALAPPDATA%`, приложение запускается,
 лампа управляется, удаление не оставляет автозапуска, повторная установка
 работает, `report.cmd` собирает архив без ключа.
+
+**Результат 16.11.2026:**
+
+- собран `packaging\build.ps1`: embed-Python 3.12.10 → `build\vendor` → проверка
+  импортов в готовой раскладке → `onair.ico` → портативная папка и zip → `iscc`
+  → `SHA256SUMS.txt`; при успехе скрипт завершается кодом 0;
+- установлен Inno Setup **7.1.1** per-user в
+  `%LOCALAPPDATA%\Programs\Inno Setup 7`; `build.ps1` ищет 7, затем 6;
+- добавлены `packaging\report.cmd` и `tools\report_support.py`: zip
+  `OnAirLamp-report-<дата>-<время>.zip` на рабочем столе; внутри `info.txt`,
+  `plug.log`, `events.log`, `state.json`, `control.json`, `plug_state.json`;
+  `local_key` и `dev_id` не включаются (в `info.txt` — только «скрыт»);
+- артефакты: `build\OnAirLamp-1.0.0-win64.zip` —
+  `4a074408…bcd884`, `build\OnAirLamp-Setup-1.0.0.exe` — `132069fa…87f128`;
+- проверено на этом ПК: тихая установка `/VERYSILENT /CURRENTUSER
+  /TASKS=autostart` → код 0, каталог `%LOCALAPPDATA%\Programs\OnAirLamp`, пять
+  ярлыков в меню Пуск, `HKCU\…\Run` → `wscript.exe "...\start.vbs"`;
+  установленная копия запустилась, в журнале `build 1.0.0 (2026-11-16, 5b76c6a)`,
+  розетка подтвердила `off`;
+- повторная установка поверх: `app\secrets\tuya_plug.json` и журналы сохранены,
+  приложение запустилось;
+- удаление → код 0: автозапуск, ярлыки и запись об установке удалены,
+  `app\data` и `app\secrets` остались (включая `local_key`; путь к данным указан
+  в `docs\SUPPORT.md`);
+- `report.cmd` проверен из установленной копии: архив создан, поиск значений
+  `local_key` и `dev_id` в архиве — совпадений 0;
+- портативная копия ранее проверена отдельно (Толк и Zoom) и работает без
+  `D:\onair-lamp`.
+
+Замечания: первое скачивание python.org через PowerShell 5.1 не установило TLS,
+поэтому `build.ps1` использует `curl.exe`; скачивание с GitHub иногда обрывается —
+помогает `--retry 5 --retry-all-errors`.
 
 ### Фаза 4. Приёмка на чужих ПК
 
