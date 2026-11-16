@@ -154,6 +154,29 @@ embeddable-Python и `vendor`.
 - Не проверено: сохраняется ли суффикс после встречи, поведение на платных
   тарифах Zoom, нет ли похожего суффикса у Толка и Телемоста.
 
+## Удаление копии из Legacy и переключение автозапуска (16.11.2026)
+
+Фаза 6 плана (D-64). Установленная копия уже прошла настройку, `--verify` и
+проверку встреч, поэтому держать вторую копию в Legacy стало не нужно.
+
+- Из Startup убраны `legacy-meeting-watcher.vbs`, `legacy-plug-executor.vbs`,
+  `legacy-plug-tray.vbs`; копии — `%LOCALAPPDATA%\OnAirLamp-backup\startup-2026-11-16`.
+- Единственный автозапуск — `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`
+  → `wscript.exe "…\OnAirLamp\start.vbs"`.
+- Из `D:\Legacy` удалены `scripts\meetings\`, `data\work\meetings\`,
+  `secrets\tuya_plug.json`, `docs\tuya_setup_guide.md`,
+  `docs\proposal_onair_app.md`.
+- Резервная копия удалённого —
+  `%LOCALAPPDATA%\OnAirLamp-backup\legacy-onair-2026-11-16.zip`; внутри
+  `tuya_plug.json`, поэтому архив не пересылать и не печатать его содержимое.
+- В документах Legacy убраны ссылки на удалённые файлы и обновлено решение
+  D-64; D-54…D-63 оставлены как история.
+
+Проверено: запуск автозапуска вручную поднимает три процесса, статус
+`configured:true`, лампа управляется. Не проверено: перезагрузка Windows (сессия
+при ней прерывается) и живая встреча на установленной копии после этих
+изменений.
+
 ## Проверки, на которые можно опираться
 
 - Реальные встречи 12–13.11.2026 в Толке, Zoom и Телемосте: старт/завершение,
