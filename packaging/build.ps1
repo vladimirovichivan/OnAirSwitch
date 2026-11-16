@@ -84,6 +84,7 @@ New-Item -ItemType Directory -Force -Path (Join-Path $stage 'tools') | Out-Null
 Copy-Item (Join-Path $root 'tools\report_support.py') (Join-Path $stage 'tools')
 Copy-Item (Join-Path $build 'onair.ico') $stage
 Copy-Item (Join-Path $root 'docs\SUPPORT.md') $stage
+Copy-Item (Join-Path $root 'docs\INSTALL.md') $stage
 if (Test-Path (Join-Path $root 'packaging\licenses')) {
     Copy-Item (Join-Path $root 'packaging\licenses') (Join-Path $stage 'licenses') -Recurse
 }

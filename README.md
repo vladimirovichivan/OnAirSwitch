@@ -59,7 +59,8 @@ powershell -NoProfile -File app\scripts\meetings\watch_meetings.ps1 -Once    # �
 ```
 
 Первый запуск без настроек ожидаем: без `secrets\tuya_plug.json` исполнитель
-работает только в dry-run, трей показывает «нет данных».
+работает только в dry-run, трей показывает «розетка не настроена» и предлагает
+мастер.
 
 ## Сборка поставки
 
@@ -78,3 +79,5 @@ Inno Setup 7/6, `build\OnAirLamp-Setup-<версия>.exe`. Хеши — в
 - [`docs/HISTORY.md`](docs/HISTORY.md) — решения D-54…D-65 и проверки.
 - [`docs/plan_packaging.md`](docs/plan_packaging.md) — план автономной сборки.
 - [`docs/SUPPORT.md`](docs/SUPPORT.md) — что делать, если не работает.
+- [`docs/INSTALL.md`](docs/INSTALL.md) — инструкция для получателя: установка,
+  настройка Tuya, обновление и удаление.
