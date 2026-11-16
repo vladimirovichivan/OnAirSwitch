@@ -64,3 +64,44 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: 
 
 [Run]
 Filename: "{app}\start.vbs"; Description: "Запустить OnAir Lamp"; Flags: postinstall nowait skipifsilent
+
+[Code]
+{ При удалении спрашиваем про настройки подключения к розетке. Тихая
+  деинсталляция их сохраняет; /DELETEAPPSETTINGS удаляет без вопроса. }
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+var
+  SettingsFile: String;
+  CmdTail: String;
+  Answer: Integer;
+begin
+  if CurUninstallStep <> usUninstall then
+    Exit;
+
+  SettingsFile := ExpandConstant('{app}\app\secrets\tuya_plug.json');
+  if not FileExists(SettingsFile) then
+    Exit;
+
+  CmdTail := Lowercase(GetCmdTail);
+  if Pos('/deleteappsettings', CmdTail) > 0 then
+  begin
+    DeleteFile(SettingsFile);
+    RemoveDir(ExpandConstant('{app}\app\secrets'));
+    Exit;
+  end;
+
+  if UninstallSilent then
+    Exit;
+
+  Answer := MsgBox(
+    'Удалить сохранённые настройки подключения к розетке?' + #13#10 + #13#10 +
+    'Они позволяют после повторной установки продолжить работу без новой ' +
+    'настройки розетки.' + #13#10 +
+    'Журналы и остальные данные останутся на месте.' + #13#10 + #13#10 +
+    'Если удалить, при следующей установке розетку нужно будет настроить заново.',
+    mbConfirmation, MB_YESNO or MB_DEFBUTTON2);
+  if Answer = IDYES then
+  begin
+    DeleteFile(SettingsFile);
+    RemoveDir(ExpandConstant('{app}\app\secrets'));
+  end;
+end;

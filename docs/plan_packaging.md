@@ -208,7 +208,7 @@ assume_yes=True, byID=True)` и выбор по `dev_id`; поведение н�
   `plug.log`, `events.log`, `state.json`, `control.json`, `plug_state.json`;
   `local_key` и `dev_id` не включаются (в `info.txt` — только «скрыт»);
 - артефакты: `build\OnAirLamp-1.0.0-win64.zip` —
-  `4a074408…bcd884`, `build\OnAirLamp-Setup-1.0.0.exe` — `132069fa…87f128`;
+  `6ea9097d…d82b8fb`, `build\OnAirLamp-Setup-1.0.0.exe` — `d30a361f…3e743100`;
 - проверено на этом ПК: тихая установка `/VERYSILENT /CURRENTUSER
   /TASKS=autostart` → код 0, каталог `%LOCALAPPDATA%\Programs\OnAirLamp`, пять
   ярлыков в меню Пуск, `HKCU\…\Run` → `wscript.exe "...\start.vbs"`;
@@ -217,8 +217,11 @@ assume_yes=True, byID=True)` и выбор по `dev_id`; поведение н�
 - повторная установка поверх: `app\secrets\tuya_plug.json` и журналы сохранены,
   приложение запустилось;
 - удаление → код 0: автозапуск, ярлыки и запись об установке удалены,
-  `app\data` и `app\secrets` остались (включая `local_key`; путь к данным указан
-  в `docs\SUPPORT.md`);
+  `app\data` и `app\secrets` остались (путь к данным указан в `docs\SUPPORT.md`);
+- при обычном удалении установщик спрашивает, удалять ли «сохранённые настройки
+  подключения к розетке» (по умолчанию — нет); тихое удаление их сохраняет,
+  `/DELETEAPPSETTINGS` удаляет без вопроса. Обе ветки проверены: с флагом
+  `app\secrets` удаляется, без флага — остаётся;
 - `report.cmd` проверен из установленной копии: архив создан, поиск значений
   `local_key` и `dev_id` в архиве — совпадений 0;
 - портативная копия ранее проверена отдельно (Толк и Zoom) и работает без
