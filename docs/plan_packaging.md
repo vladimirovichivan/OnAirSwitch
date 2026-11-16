@@ -208,10 +208,11 @@ assume_yes=True, byID=True)` и выбор по `dev_id`; поведение н�
   `plug.log`, `events.log`, `state.json`, `control.json`, `plug_state.json`;
   `local_key` и `dev_id` не включаются (в `info.txt` — только «скрыт»);
 - артефакты: `build\OnAirLamp-1.0.0-win64.zip` —
-  `e0cd7afb…73551c2`, `build\OnAirLamp-Setup-1.0.0.exe` — `0e73c2d5…39367eb4`;
+  `8ba632cb…b8987ae5`, `build\OnAirLamp-Setup-1.0.0.exe` — `83656053…e844dff38f`;
 - проверено на этом ПК: тихая установка `/VERYSILENT /CURRENTUSER
-  /TASKS=autostart` → код 0, каталог `%LOCALAPPDATA%\Programs\OnAirLamp`, пять
-  ярлыков в меню Пуск, `HKCU\…\Run` → `wscript.exe "...\start.vbs"`;
+  /TASKS=autostart` → код 0, каталог `%LOCALAPPDATA%\Programs\OnAirLamp`, папка
+  «OnAir Lamp» в меню Пуск с пятью ярлыками,
+  `HKCU\…\Run` → `wscript.exe "...\start.vbs"`;
   установленная копия запустилась, в журнале `build 1.0.0 (2026-11-16, 5b76c6a)`,
   розетка подтвердила `off`;
 - повторная установка поверх: `app\secrets\tuya_plug.json` и журналы сохранены,

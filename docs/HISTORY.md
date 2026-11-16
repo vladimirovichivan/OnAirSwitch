@@ -72,6 +72,8 @@ embeddable-Python и `vendor`.
   `build.ps1` ищет 7, затем 6;
 - `tools\report_support.py` и `packaging\report.cmd` собирают архив для поддержки
   на рабочем столе: журналы и состояния + `info.txt` без `local_key` и `dev_id`;
+- ярлыки лежат в отдельной папке «OnAir Lamp» в меню Пуск (пять штук), а не в
+  корне меню;
 - артефакты: `build\OnAirLamp-1.0.0-win64.zip`, `build\OnAirLamp-Setup-1.0.0.exe`.
 
 Проверено на этом ПК:

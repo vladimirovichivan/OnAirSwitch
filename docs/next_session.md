@@ -99,7 +99,8 @@ Legacy по лампе больше не развивается и архиво�
   установкой и тестами останавливать другие копии (общий mutex).
 - Установщик ставит только в `%LOCALAPPDATA%\Programs\OnAirLamp`
   (`DisableDirPage=yes`, `UsePreviousAppDir=no`); запуск и ярлыки — через
-  `wscript.exe`, не прямой `.vbs` (иначе код 193).
+  `wscript.exe`, не прямой `.vbs` (иначе код 193); ярлыки — в папке
+  «OnAir Lamp» в меню Пуск.
 - Mutex: `Local\LegacyPlugExecutor`, `Local\LegacyPlugTray` — два экземпляра
   одновременно не запустятся; общий для Legacy и нового проекта.
 - Корень вычисляется как `SCRIPT_DIR.parent.parent`, поэтому в проекте это
