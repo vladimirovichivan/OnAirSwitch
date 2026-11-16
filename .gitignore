@@ -1,0 +1,25 @@
+# Виртуальные окружения
+.venv/
+venv/
+
+# Сборка поставки
+build/
+dist/
+vendor/
+python/
+
+# Runtime-данные (журналы, состояние, секреты)
+app/data/
+app/secrets/
+*.log
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Прочее
+Thumbs.db
+Desktop.ini
+*.tmp
+*.bak

@@ -1,0 +1,10 @@
+# Зависимости операционных утилит scripts/meetings (D-54, D-55, D-61).
+# Устанавливаются в отдельное окружение scripts/meetings/.venv и не входят в пакет
+# legacy, pyproject.toml и requirements.lock проекта.
+#
+#   python -m venv scripts/meetings/.venv
+#   scripts/meetings/.venv/Scripts/python.exe -m pip install -r scripts/meetings/requirements.txt
+tinytuya==1.21.1
+# Трей (tray_plug.py): pystray использует бэкенд win32 на ctypes, нужен только Pillow.
+pystray==0.19.5
+Pillow==13.0.0
