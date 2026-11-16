@@ -53,6 +53,7 @@ from datetime import datetime
 from pathlib import Path
 
 import plug_control as pc
+import tuya_discovery as discovery
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPT_DIR.parent.parent
@@ -61,9 +62,11 @@ DEFAULT_LOG = REPO_ROOT / 'data' / 'work' / 'meetings' / 'plug.log'
 DEFAULT_CONFIG = REPO_ROOT / 'secrets' / 'tuya_plug.json'
 DEFAULT_CONTROL = REPO_ROOT / 'data' / 'work' / 'meetings' / 'control.json'
 DEFAULT_STATUS = REPO_ROOT / 'data' / 'work' / 'meetings' / 'plug_state.json'
+DEFAULT_BUILD = REPO_ROOT / 'build.json'
 MUTEX_NAME = 'Local\\LegacyPlugExecutor'
 LOG_MAX_BYTES = 1024 * 1024
 STATUS_HEARTBEAT = 5.0
+REDISCOVERY_COOLDOWN = 600.0  # не искать устройство чаще, чем раз в 10 минут
 _UNSET = object()  # «желаемое ещё не вычислялось» (None — законное значение)
 
 
@@ -99,6 +102,26 @@ def acquire_single_instance() -> bool:
     kernel32 = ctypes.windll.kernel32
     kernel32.CreateMutexW(None, False, MUTEX_NAME)
     return kernel32.GetLastError() != 183  # ERROR_ALREADY_EXISTS
+
+
+def read_build_info(path: Path) -> str:
+    """Строка версии сборки для журнала: «1.0.0 (2026-11-16, abc1234)».
+
+    В репозитории build.json нет — это нормальный режим разработки, тогда «dev».
+    """
+    try:
+        data = json.loads(path.read_text(encoding='utf-8-sig'))
+    except (OSError, ValueError):
+        return 'dev'
+    if not isinstance(data, dict):
+        return 'dev'
+    version = str(data.get('version') or '').strip()
+    if not version:
+        return 'dev'
+    details = [str(data.get(key) or '').strip() for key in ('built', 'commit')]
+    details = [value[:7] if index == 1 else value for index, value in enumerate(details)]
+    details = [value for value in details if value]
+    return f'{version} ({", ".join(details)})' if details else version
 
 
 def read_desired(state_path: Path, stale_seconds: int) -> tuple[bool | None, str]:
@@ -180,19 +203,21 @@ class TuyaPlug:
         self.last_checked: str | None = None
         self.last_error: str | None = None
         self.device = None
+        self.rediscovery_next = 0.0
         if apply and not (self.dev_id and self.local_key):
             raise SystemExit('secrets/tuya_plug.json must contain dev_id and local_key')
         if apply:
             self.device = self._connect()
 
-    def _connect(self):
+    def _connect(self, address: str | None = None):
         try:
             import tinytuya  # noqa: PLC0415 - нужен только в режиме --apply
         except ImportError:
             raise SystemExit(
                 'tinytuya is not installed. For --apply: python -m pip install tinytuya'
             )
-        device = tinytuya.OutletDevice(self.dev_id, self.address, self.local_key, version=self.version)
+        target = address or self.address
+        device = tinytuya.OutletDevice(self.dev_id, target, self.local_key, version=self.version)
         device.set_version(self.version)
         device.set_socketTimeout(5)
         # Соединение не держим: команда нужна раз в несколько часов, а постоянный
@@ -200,18 +225,42 @@ class TuyaPlug:
         device.set_socketPersistent(False)
         return device
 
+    def _read_status(self):
+        try:
+            return self.device.status()
+        except Exception as exc:  # сеть, таймауты, разбор пакета
+            self.last_error = f'status read failed ({type(exc).__name__}: {exc})'
+            return None
+
+    def _recover_address(self) -> bool:
+        """Один раз найти устройство по dev_id, если настроенный адрес молчит.
+
+        Конфиг не перезаписывается: после смены IP всё равно нужна резервация в
+        DHCP, а ручная правка файла остаётся осознанным действием.
+        """
+        now = time.monotonic()
+        if now < self.rediscovery_next or not self.dev_id:
+            return False
+        self.rediscovery_next = now + REDISCOVERY_COOLDOWN
+        found = discovery.find_address(self.dev_id, seconds=6.0)
+        if not found or found == self.address:
+            return False
+        self.log(f'{self.name}: address rediscovered: {self.address} -> {found}')
+        self.address = found
+        self.device = self._connect()
+        return True
+
     def status(self) -> bool | None:
         if not self.apply:
             return None
-        try:
-            result = self.device.status()
-        except Exception as exc:  # сеть, таймауты, разбор пакета
-            self.last_error = f'status read failed ({type(exc).__name__}: {exc})'
-            self.log(f'{self.name}: {self.last_error}')
-            return None
+        result = self._read_status()
+        if not isinstance(result, dict) or 'dps' not in result:
+            if self._recover_address():
+                result = self._read_status()
         if not isinstance(result, dict) or 'dps' not in result:
             error = result.get('Error') if isinstance(result, dict) else result
-            self.last_error = f'no response when reading status ({error})'
+            if self.last_error is None:
+                self.last_error = f'no response when reading status ({error})'
             self.log(f'{self.name}: {self.last_error}')
             return None
         value = (result.get('dps') or {}).get(self.switch_dp)
@@ -332,7 +381,8 @@ def main() -> int:
         return 2
 
     mode = 'apply' if args.apply else 'dry-run'
-    log(f'executor started: mode {mode}; device {plug.name} ({plug.address}, '
+    build = read_build_info(DEFAULT_BUILD)
+    log(f'executor started: build {build}; mode {mode}; device {plug.name} ({plug.address}, '
         f'version {plug.version}, DP {plug.switch_dp}); state {args.state}; '
         f'control {args.control}; stale threshold {args.stale}s')
     if not args.apply:

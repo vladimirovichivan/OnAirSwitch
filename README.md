@@ -13,6 +13,7 @@
 - [x] Проект создан, код перенесён.
 - [x] Локальный запуск из `D:\onair-lamp` проверен на живых встречах
       (Толк, Zoom, Телемост, 16.11.2026).
+- [x] Проверка розетки (`--verify`) и поиск адреса по UDP.
 - [ ] Автономная сборка (эмбеддированный Python + Inno Setup).
 - [ ] Мастер настройки, проверка розетки, отчёт для поддержки.
 - [ ] Приёмка на чужом ПК (Windows 11 и Windows 10).
@@ -26,7 +27,7 @@
 ## Раскладка
 
 ```
-app\scripts\meetings\   наблюдатель, исполнитель, трей, настройка Tuya
+app\scripts\meetings\   наблюдатель, исполнитель, трей, настройка и поиск Tuya
 docs\                   архитектура, история решений, план сборки, поддержка
 packaging\              сценарий установщика и запуск трёх процессов
 tools\                  служебные скрипты (отчёт для поддержки)
@@ -48,6 +49,7 @@ powershell -ExecutionPolicy Bypass -File scripts\setup-dev.ps1
 .venv\Scripts\python.exe app\scripts\meetings\plug_executor.py --once        # dry-run
 .venv\Scripts\pythonw.exe app\scripts\meetings\tray_plug.py                  # трей
 powershell -NoProfile -File app\scripts\meetings\watch_meetings.ps1 -Once    # диагностика
+.venv\Scripts\python.exe app\scripts\meetings\tuya_setup.py --verify         # розетка
 ```
 
 Первый запуск без настроек ожидаем: без `secrets\tuya_plug.json` исполнитель

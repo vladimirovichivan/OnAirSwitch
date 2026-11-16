@@ -12,8 +12,11 @@ Smart Life и подписка на API "Smart Home Basic Service" (беспла
   python tuya_setup.py                     # регион eu (Central Europe)
   python tuya_setup.py --region we         # Western Europe
   python tuya_setup.py --address 192.168.111.124
+  python tuya_setup.py --verify            # проверить уже настроенную розетку
 
-Только стандартная библиотека Python 3.9+.
+Для настройки достаточно стандартной библиотеки Python 3.9+. Режим `--verify`
+переключает розетку и возвращает её в исходное состояние, поэтому требует
+tinytuya и не запускается во время встречи (обойти — `--force`).
 """
 
 from __future__ import annotations
@@ -30,9 +33,12 @@ import urllib.request
 import uuid
 from pathlib import Path
 
+import tuya_discovery as discovery
+
 SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPT_DIR.parent.parent
 DEFAULT_OUT = REPO_ROOT / 'secrets' / 'tuya_plug.json'
+DEFAULT_STATE = REPO_ROOT / 'data' / 'work' / 'meetings' / 'state.json'
 
 REGIONS = {
     'eu': 'https://openapi.tuyaeu.com',
@@ -165,14 +171,183 @@ def diagnose(cloud: TuyaCloud, uid: str, device_id: str) -> int:
     return 0
 
 
+def _parse_switch(result, switch_dp: str) -> tuple[bool | None, str | None]:
+    if not isinstance(result, dict) or 'dps' not in result:
+        error = result.get('Error') if isinstance(result, dict) else result
+        return None, f'нет ответа ({error})'
+    value = (result.get('dps') or {}).get(str(switch_dp))
+    if value is None:
+        available = sorted((result.get('dps') or {}).keys())
+        return None, f'в ответе нет DP {switch_dp}; доступны {available}'
+    return str(value).lower() in ('true', '1', 'on'), None
+
+
+def _connect(tinytuya, dev_id: str, address: str, local_key: str, version: str):
+    device = tinytuya.OutletDevice(dev_id, address, local_key, version=float(version))
+    device.set_version(float(version))
+    device.set_socketTimeout(5)
+    device.set_socketPersistent(False)
+    return device
+
+
+def _meeting_in_progress(state_path: Path) -> bool:
+    try:
+        data = json.loads(state_path.read_text(encoding='utf-8-sig'))
+    except (OSError, ValueError):
+        return False
+    if not data.get('meeting'):
+        return False
+    try:
+        updated = time.mktime(time.strptime(data.get('updated'), '%Y-%m-%d %H:%M:%S'))
+    except (TypeError, ValueError):
+        return True
+    return time.time() - updated <= 90
+
+
+def verify(config_path: Path, override_address: str, force: bool) -> int:
+    """Проверка настроенной розетки: поиск → чтение → переключение → возврат.
+
+    Печатает имя, адрес, протокол, DP и состояние. `local_key` не печатается,
+    `dev_id` — только маской.
+    """
+    if not config_path.exists():
+        print(f'конфигурация не найдена: {config_path}')
+        print('Сначала выполните настройку: python tuya_setup.py --address <IP>')
+        return 1
+    try:
+        config = json.loads(config_path.read_text(encoding='utf-8-sig'))
+    except (OSError, ValueError) as exc:
+        print(f'конфигурация не читается: {exc}')
+        return 1
+    dev_id = str(config.get('dev_id') or '')
+    local_key = str(config.get('local_key') or '')
+    if not dev_id or not local_key:
+        print('в конфигурации нет dev_id или local_key — повторите настройку.')
+        return 1
+    switch_dp = str(config.get('switch_dp', '1'))
+    version = str(config.get('version', '3.3'))
+
+    if _meeting_in_progress(DEFAULT_STATE) and not force:
+        print('сейчас идёт встреча: проверка переключила бы лампу.')
+        print('Дождитесь окончания или запустите с --force, если это безопасно.')
+        return 4
+
+    try:
+        import tinytuya
+    except ImportError:
+        print('tinytuya не установлен: для --verify нужен .venv или vendor.')
+        return 2
+
+    print('поиск розетки в локальной сети…')
+    discovered = discovery.find_addresses(dev_id, seconds=6.0)
+    addresses: list[str] = []
+    if override_address:
+        addresses.append(override_address)
+    addresses.extend(ip for ip, _ in discovered)
+    configured = str(config.get('address') or '')
+    if configured and configured not in addresses:
+        addresses.append(configured)
+    if not addresses:
+        print('устройство не найдено: проверьте, что розетка в той же сети.')
+        return 5
+    if discovered:
+        print('  найдено UDP-поиском: ' + ', '.join(ip for ip, _ in discovered))
+    else:
+        print('  UDP-поиск не ответил, проверяю сохранённый адрес')
+
+    versions = [version] + [item for item in ('3.3', '3.4', '3.5') if item != version]
+    chosen = None
+    for address in addresses:
+        for candidate_version in versions:
+            device = _connect(tinytuya, dev_id, address, local_key, candidate_version)
+            try:
+                result = device.status()
+            except Exception as exc:
+                print(f'  {address}, протокол {candidate_version}: '
+                      f'{type(exc).__name__}: {exc}')
+                continue
+            state, error = _parse_switch(result, switch_dp)
+            if error:
+                print(f'  {address}, протокол {candidate_version}: {error}')
+                continue
+            chosen = (address, candidate_version, state, device)
+            break
+        if chosen:
+            break
+    if chosen is None:
+        print('не удалось прочитать состояние: адрес отвечает, но ключ или протокол')
+        print('не подошли. Проверьте, что розетку не перепривязывали в Smart Life.')
+        return 6
+
+    address, used_version, initial, device = chosen
+    print('')
+    print(f'  устройство: {config.get("name") or "розетка"}')
+    print(f'  dev_id:     {mask(dev_id)}')
+    print(f'  адрес:      {address}')
+    print(f'  протокол:   {used_version}, DP {switch_dp}')
+    print(f'  состояние:  {"включена" if initial else "выключена"}')
+
+    target = not initial
+    switched = False
+    restored = None
+    try:
+        print(f'  переключаю: {"включить" if target else "выключить"}…')
+        result = device.turn_on() if target else device.turn_off()
+        if isinstance(result, dict) and result.get('Error'):
+            print(f'  устройство отклонило команду: {result.get("Error")}')
+            return 7
+        switched = True
+        time.sleep(1)
+        state, error = _parse_switch(device.status(), switch_dp)
+        if error:
+            print(f'  не удалось подтвердить переключение: {error}')
+            return 7
+        if state != target:
+            print('  состояние после команды не совпало с ожидаемым')
+            return 7
+        print(f'  подтверждено чтением: {"включена" if target else "выключена"}')
+    finally:
+        if switched:
+            print(f'  возвращаю исходное состояние: '
+                  f'{"включить" if initial else "выключить"}…')
+            try:
+                result = device.turn_on() if initial else device.turn_off()
+                if isinstance(result, dict) and result.get('Error'):
+                    print(f'  вернуть не удалось: {result.get("Error")}')
+                else:
+                    time.sleep(1)
+                    restored, error = _parse_switch(device.status(), switch_dp)
+                    if error:
+                        print(f'  не удалось перечитать состояние: {error}')
+                    elif restored != initial:
+                        print('  внимание: исходное состояние не подтверждено')
+                    else:
+                        print(f'  исходное состояние восстановлено: '
+                              f'{"включена" if initial else "выключена"}')
+            except Exception as exc:
+                print(f'  вернуть не удалось: {type(exc).__name__}: {exc}')
+
+    print('')
+    print('проверка пройдена: связь, ключ, DP и переключение работают.')
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description='Получение ключей Tuya и запись secrets/tuya_plug.json')
     parser.add_argument('--region', choices=sorted(REGIONS), default='eu', help='дата-центр проекта (по умолчанию eu)')
     parser.add_argument('--address', default='', help='IP розетки; при совпадении устройство выбирается без вопросов')
     parser.add_argument('--device-id', default='', help='Device ID для проверки в режиме --diagnose')
     parser.add_argument('--diagnose', action='store_true', help='только проверить доступность API, ничего не записывать')
-    parser.add_argument('--out', type=Path, default=DEFAULT_OUT)
+    parser.add_argument('--verify', action='store_true',
+                        help='проверить настроенную розетку: поиск, чтение, переключение и возврат')
+    parser.add_argument('--force', action='store_true',
+                        help='в режиме --verify переключать даже во время встречи')
+    parser.add_argument('--out', type=Path, default=DEFAULT_OUT,
+                        help='файл конфигурации: куда записать или что проверять в --verify')
     args = parser.parse_args()
+
+    if args.verify:
+        return verify(args.out, args.address, args.force)
 
     if args.out.exists():
         print(f'{args.out} уже существует — перезапись не выполняется.')
@@ -241,7 +416,18 @@ def main() -> int:
     cloud_ip = chosen.get('ip') or ''
     # Явно указанный LAN-адрес важнее: облако часто сообщает внешний IP, а локальный
     # протокол работает только по адресу в домашней сети.
-    address = args.address or cloud_ip
+    discovered_ip = ''
+    print('')
+    print('поиск адреса розетки в локальной сети (UDP)…')
+    found = discovery.find_addresses(chosen['id'], seconds=6.0)
+    if found:
+        discovered_ip = found[0][0]
+        print(f'  найден адрес: {discovered_ip}')
+    else:
+        print('  устройство не ответило на поиск; беру адрес из --address или облака')
+    address = args.address or discovered_ip or cloud_ip
+    if args.address and discovered_ip and args.address != discovered_ip:
+        print(f'  внимание: поиск нашёл {discovered_ip}, но взят адрес из --address')
 
     config = {
         'name': chosen.get('name') or 'розетка',
@@ -266,7 +452,7 @@ def main() -> int:
         print('  внимание: адрес взят из облака и может быть внешним IP; для локального')
         print('  протокола укажите --address <IP в домашней сети> и повторите.')
     print('')
-    print('Проверка: python plug_executor.py --once  (dry-run, устройство не переключается)')
+    print('Проверка: python tuya_setup.py --verify  (переключение и возврат состояния)')
     print('Если подключение не удастся, версия протокола подбирается: 3.3 → 3.4 → 3.5.')
     return 0
 
