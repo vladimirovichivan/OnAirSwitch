@@ -208,7 +208,7 @@ assume_yes=True, byID=True)` и выбор по `dev_id`; поведение н�
   `plug.log`, `events.log`, `state.json`, `control.json`, `plug_state.json`;
   `local_key` и `dev_id` не включаются (в `info.txt` — только «скрыт»);
 - артефакты: `build\OnAirLamp-1.0.0-win64.zip` —
-  `5c88314f…aafef5`, `build\OnAirLamp-Setup-1.0.0.exe` — `8bfea3b9…21b099`;
+  `061c1d7f…1fb2d0b`, `build\OnAirLamp-Setup-1.0.0.exe` — `8bd62f9f…0410186a1`;
 - проверено на этом ПК: тихая установка `/VERYSILENT /CURRENTUSER
   /TASKS=autostart` → код 0, каталог `%LOCALAPPDATA%\Programs\OnAirLamp`, папка
   «OnAir Lamp» в меню Пуск с пятью ярлыками,
