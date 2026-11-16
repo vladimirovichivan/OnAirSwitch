@@ -53,11 +53,11 @@ Source: "{#StageDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs c
 Source: "..\build\onair.ico"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
-Name: "{autoprograms}\OnAir Lamp"; Filename: "{sys}\wscript.exe"; Parameters: """{app}\start.vbs"""; IconFilename: "{app}\onair.ico"; WorkingDir: "{app}"
-Name: "{autoprograms}\Настройка OnAir Lamp"; Filename: "{app}\setup.cmd"; IconFilename: "{app}\onair.ico"; WorkingDir: "{app}"
-Name: "{autoprograms}\Проверка розетки"; Filename: "{app}\verify.cmd"; IconFilename: "{app}\onair.ico"; WorkingDir: "{app}"
-Name: "{autoprograms}\Отчёт для поддержки"; Filename: "{app}\report.cmd"; IconFilename: "{app}\onair.ico"; WorkingDir: "{app}"
-Name: "{autoprograms}\Если не работает"; Filename: "{app}\SUPPORT.md"
+Name: "{group}\OnAir Lamp"; Filename: "{sys}\wscript.exe"; Parameters: """{app}\start.vbs"""; IconFilename: "{app}\onair.ico"; WorkingDir: "{app}"
+Name: "{group}\Настройка OnAir Lamp"; Filename: "{app}\setup.cmd"; IconFilename: "{app}\onair.ico"; WorkingDir: "{app}"
+Name: "{group}\Проверка розетки"; Filename: "{app}\verify.cmd"; IconFilename: "{app}\onair.ico"; WorkingDir: "{app}"
+Name: "{group}\Отчёт для поддержки"; Filename: "{app}\report.cmd"; IconFilename: "{app}\onair.ico"; WorkingDir: "{app}"
+Name: "{group}\Если не работает"; Filename: "{app}\SUPPORT.md"
 Name: "{autodesktop}\OnAir Lamp"; Filename: "{sys}\wscript.exe"; Parameters: """{app}\start.vbs"""; IconFilename: "{app}\onair.ico"; WorkingDir: "{app}"; Tasks: desktopicon
 
 [Registry]
