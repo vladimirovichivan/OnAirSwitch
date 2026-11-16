@@ -104,6 +104,35 @@ def acquire_single_instance() -> bool:
     return kernel32.GetLastError() != 183  # ERROR_ALREADY_EXISTS
 
 
+def read_config(path: Path) -> tuple[dict | None, str | None]:
+    """Конфигурация устройства: (данные, пояснение ошибки).
+
+    Отсутствие файла — нормальное состояние до настройки: исполнитель остаётся
+    запущенным и ждёт, пока setup.cmd запишет конфигурацию.
+    """
+    try:
+        raw = path.read_text(encoding='utf-8-sig')
+    except FileNotFoundError:
+        return None, 'config file is missing'
+    except OSError as exc:
+        return None, f'config is unreadable: {exc}'
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        return None, f'config is not valid JSON: {exc}'
+    if not isinstance(data, dict):
+        return None, 'config must be a JSON object'
+    return data, None
+
+
+def build_plug(config: dict, args, log: Log) -> tuple['TuyaPlug | None', str | None]:
+    """Создаёт обёртку устройства; при неполной конфигурации — (None, причина)."""
+    try:
+        return TuyaPlug(config, args.apply, log), None
+    except SystemExit as exc:
+        return None, f'plug is not configured: {exc}'
+
+
 def read_build_info(path: Path) -> str:
     """Строка версии сборки для журнала: «1.0.0 (2026-11-16, abc1234)».
 
@@ -362,29 +391,28 @@ def main() -> int:
         log('executor is already running, second instance is not needed')
         return 0
 
-    config = {}
-    if args.config.exists():
-        try:
-            config = json.loads(args.config.read_text(encoding='utf-8'))
-        except (OSError, json.JSONDecodeError) as exc:
-            log(f'config is unreadable: {exc}')
-            if args.apply:
-                return 2
-    elif args.apply:
-        log(f'config file {args.config} is missing; it is required for --apply')
-        return 2
+    config, config_error = read_config(args.config)
+    if config is None and not args.apply:
+        # В dry-run устройство не нужно: хватает пустой конфигурации.
+        config, config_error = {}, None
 
-    try:
-        plug = TuyaPlug(config, args.apply, log)
-    except KeyError as exc:
-        log(f'config has no required field {exc}')
-        return 2
+    plug = None
+    if config is not None:
+        plug, config_error = build_plug(config, args, log)
+    if plug is None:
+        log(f'executor is waiting for setup: {config_error or "config is missing"}')
+        if args.once:
+            return 2
 
     mode = 'apply' if args.apply else 'dry-run'
     build = read_build_info(DEFAULT_BUILD)
-    log(f'executor started: build {build}; mode {mode}; device {plug.name} ({plug.address}, '
-        f'version {plug.version}, DP {plug.switch_dp}); state {args.state}; '
-        f'control {args.control}; stale threshold {args.stale}s')
+    if plug is not None:
+        log(f'executor started: build {build}; mode {mode}; device {plug.name} ({plug.address}, '
+            f'version {plug.version}, DP {plug.switch_dp}); state {args.state}; '
+            f'control {args.control}; stale threshold {args.stale}s')
+    else:
+        log(f'executor started: build {build}; mode {mode}; plug is not configured yet; '
+            f'state {args.state}; control {args.control}; stale threshold {args.stale}s')
     if not args.apply:
         log('dry-run: device will not be switched (add --apply)')
 
@@ -392,15 +420,30 @@ def main() -> int:
     last_desired: object = _UNSET
     last_reason = None
     last_mode = None
+    last_config_error = config_error
     failed_until = 0.0
     published = None
     next_heartbeat = 0.0
     try:
         while True:
+            if args.apply and plug is None:
+                # setup.cmd мог только что записать конфигурацию: подхватываем её
+                # без перезапуска, а строку в журнал пишем только при смене причины.
+                config, config_error = read_config(args.config)
+                if config is not None:
+                    plug, config_error = build_plug(config, args, log)
+                    if plug is not None:
+                        log(f'plug configured: {plug.name} ({plug.address})')
+                        last_desired = _UNSET
+                        failed_until = 0.0
+                if plug is None and config_error != last_config_error:
+                    log(f'executor is waiting for setup: {config_error}')
+                last_config_error = config_error
+
             desired, reason, mode, until = resolve_desired(args, log)
             hold = desired is None and mode == pc.MODE_PAUSED
-            needs_action = (args.once or desired != last_desired
-                            or reason != last_reason or mode != last_mode)
+            needs_action = (plug is not None and (args.once or desired != last_desired
+                            or reason != last_reason or mode != last_mode))
             if needs_action and time.monotonic() >= failed_until:
                 if hold:
                     # Автоматика снята: устройство не трогаем, но одна строка
@@ -419,13 +462,14 @@ def main() -> int:
                 last_mode = mode
 
             payload = {
-                'device': plug.name,
+                'device': plug.name if plug is not None else None,
+                'configured': plug is not None or not args.apply,
                 'mode': mode,
                 'until': pc.format_stamp(until) if until else None,
                 'desired': desired,
-                'actual': plug.last_status if args.apply else None,
-                'checked': plug.last_checked if args.apply else None,
-                'error': plug.last_error,
+                'actual': plug.last_status if plug is not None and args.apply else None,
+                'checked': plug.last_checked if plug is not None and args.apply else None,
+                'error': plug.last_error if plug is not None else None,
             }
             if payload != published or time.monotonic() >= next_heartbeat:
                 try:

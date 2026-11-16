@@ -208,7 +208,7 @@ assume_yes=True, byID=True)` и выбор по `dev_id`; поведение н�
   `plug.log`, `events.log`, `state.json`, `control.json`, `plug_state.json`;
   `local_key` и `dev_id` не включаются (в `info.txt` — только «скрыт»);
 - артефакты: `build\OnAirLamp-1.0.0-win64.zip` —
-  `8ba632cb…b8987ae5`, `build\OnAirLamp-Setup-1.0.0.exe` — `83656053…e844dff38f`;
+  `5c88314f…aafef5`, `build\OnAirLamp-Setup-1.0.0.exe` — `8bfea3b9…21b099`;
 - проверено на этом ПК: тихая установка `/VERYSILENT /CURRENTUSER
   /TASKS=autostart` → код 0, каталог `%LOCALAPPDATA%\Programs\OnAirLamp`, папка
   «OnAir Lamp» в меню Пуск с пятью ярлыками,
@@ -229,6 +229,13 @@ assume_yes=True, byID=True)` и выбор по `dev_id`; поведение н�
   `C:\Program Files\OnAirLamp`, где нет прав на запись `app\data`;
 - запуск и ярлыки используют `wscript.exe` явно: прямой запуск `.vbs` давал
   `CreateProcess: код 193` при нарушенной ассоциации файлов;
+- первый запуск без настроенной розетки: исполнитель не выходит, а публикует
+  `plug_state.json` с `configured: false`; трей показывает «розетка не
+  настроена» и пункт «Настроить розетку…», который открывает мастер;
+- после успешной настройки `setup.cmd` перезапускает процессы этой копии через
+  `restart.ps1` — исполнитель сразу подхватывает `tuya_plug.json`, перезагрузка
+  или повторный запуск вручную не нужны. Проверено без конфигурации и после
+  её появления на установленной копии;
 - `report.cmd` проверен из установленной копии: архив создан, поиск значений
   `local_key` и `dev_id` в архиве — совпадений 0;
 - портативная копия ранее проверена отдельно (Толк и Zoom) и работает без

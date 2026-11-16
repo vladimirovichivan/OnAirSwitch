@@ -249,6 +249,8 @@ def _report(control: dict, status: dict | None) -> str:
         lines.append(f'control updated: {control["updated"]} (source {control.get("source")})')
     if status is None:
         lines.append('executor: plug_state.json отсутствует')
+    elif status.get('configured') is False:
+        lines.append('executor: розетка не настроена (мастер настройки ещё не пройден)')
     else:
         actual = status.get('actual')
         lamp = {True: 'включена', False: 'выключена'}.get(actual, 'неизвестно')

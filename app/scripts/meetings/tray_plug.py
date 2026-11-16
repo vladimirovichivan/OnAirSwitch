@@ -28,6 +28,7 @@ import plug_control as pc
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPT_DIR.parent.parent
+PACKAGE_ROOT = REPO_ROOT.parent
 TRAY_LOG = REPO_ROOT / 'data' / 'work' / 'meetings' / 'tray.log'
 PLUG_LOG = REPO_ROOT / 'data' / 'work' / 'meetings' / 'plug.log'
 MUTEX_NAME = 'Local\\LegacyPlugTray'
@@ -89,11 +90,18 @@ def status_age(status: dict | None) -> float | None:
     return (datetime.now() - stamp).total_seconds()
 
 
+def is_unconfigured() -> bool:
+    status = _state['status']
+    return status is not None and status.get('configured') is False
+
+
 def lamp_text(item=None) -> str:
     status = _state['status']
+    if is_unconfigured():
+        return 'Лампа: розетка не настроена — «Настроить розетку…»'
     age = status_age(status)
     if status is None:
-        return 'Лампа: нет данных (исполнитель не запускался)'
+        return 'Лампа: нет данных (исполнитель не запущен)'
     if age is None or age > STATUS_STALE_SECONDS:
         return f'Лампа: ? — исполнитель не отвечает (статус от {status.get("updated") or "?"})'
     actual = status.get('actual')
@@ -137,9 +145,12 @@ def refresh() -> None:
         return
     if changed:
         _icon.icon = make_image(kind)
-    _icon.title = ('Лампа On air: ' + {'on': 'включена', 'off': 'выключена',
-                                       'paused': 'автоматика снята'}.get(kind, 'нет данных')
-                   + ' · ' + pc.describe(mode, until))[:120]
+    if is_unconfigured():
+        title_word = 'розетка не настроена'
+    else:
+        title_word = {'on': 'включена', 'off': 'выключена',
+                      'paused': 'автоматика снята'}.get(kind, 'нет данных')
+    _icon.title = ('Лампа On air: ' + title_word + ' · ' + pc.describe(mode, until))[:120]
     _icon.update_menu()
 
 
@@ -161,6 +172,23 @@ def open_log() -> None:
         log(f'cannot open {PLUG_LOG}: {exc}')
         if _icon is not None:
             _icon.notify(f'Не удалось открыть журнал: {exc}', 'Лампа On air')
+
+
+def open_setup() -> None:
+    """Открывает мастер настройки из папки установки (или packaging в dev-копии)."""
+    candidates = (PACKAGE_ROOT / 'setup.cmd', PACKAGE_ROOT / 'packaging' / 'setup.cmd')
+    path = next((item for item in candidates if item.exists()), None)
+    if path is None:
+        if _icon is not None:
+            _icon.notify('Не найден setup.cmd — переустановите OnAir Lamp.', 'Лампа On air')
+        return
+    try:
+        import os
+        os.startfile(str(path))
+    except OSError as exc:
+        log(f'cannot open {path}: {exc}')
+        if _icon is not None:
+            _icon.notify(f'Не удалось открыть настройку: {exc}', 'Лампа On air')
 
 
 def quit_app() -> None:
@@ -194,6 +222,8 @@ def build_menu() -> pystray.Menu:
         pystray.Menu.SEPARATOR,
         pystray.MenuItem(lambda item: error_text() or '', open_log,
                          visible=lambda item: error_text() is not None, enabled=False),
+        pystray.MenuItem('Настроить розетку…', open_setup,
+                         visible=lambda item: is_unconfigured()),
         pystray.MenuItem('Открыть plug.log', open_log),
         pystray.MenuItem('Выход', quit_app),
     )

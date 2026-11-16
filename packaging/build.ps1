@@ -76,6 +76,7 @@ Copy-Item (Join-Path $root 'app\scripts\meetings\*.py') $appScripts
 Copy-Item (Join-Path $root 'app\scripts\meetings\*.ps1') $appScripts
 Copy-Item (Join-Path $root 'app\scripts\meetings\requirements.txt') $appScripts
 Copy-Item (Join-Path $root 'packaging\start.vbs') $stage
+Copy-Item (Join-Path $root 'packaging\restart.ps1') $stage
 Copy-Item (Join-Path $root 'packaging\setup.cmd') $stage
 Copy-Item (Join-Path $root 'packaging\verify.cmd') $stage
 Copy-Item (Join-Path $root 'packaging\report.cmd') $stage
