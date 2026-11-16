@@ -208,7 +208,7 @@ assume_yes=True, byID=True)` и выбор по `dev_id`; поведение н�
   `plug.log`, `events.log`, `state.json`, `control.json`, `plug_state.json`;
   `local_key` и `dev_id` не включаются (в `info.txt` — только «скрыт»);
 - артефакты: `build\OnAirLamp-1.0.0-win64.zip` —
-  `6ea9097d…d82b8fb`, `build\OnAirLamp-Setup-1.0.0.exe` — `d30a361f…3e743100`;
+  `e0cd7afb…73551c2`, `build\OnAirLamp-Setup-1.0.0.exe` — `0e73c2d5…39367eb4`;
 - проверено на этом ПК: тихая установка `/VERYSILENT /CURRENTUSER
   /TASKS=autostart` → код 0, каталог `%LOCALAPPDATA%\Programs\OnAirLamp`, пять
   ярлыков в меню Пуск, `HKCU\…\Run` → `wscript.exe "...\start.vbs"`;
@@ -222,6 +222,12 @@ assume_yes=True, byID=True)` и выбор по `dev_id`; поведение н�
   подключения к розетке» (по умолчанию — нет); тихое удаление их сохраняет,
   `/DELETEAPPSETTINGS` удаляет без вопроса. Обе ветки проверены: с флагом
   `app\secrets` удаляется, без флага — остаётся;
+- каталог установки зафиксирован: страница выбора папки отключена
+  (`DisableDirPage=yes`), прежний каталог не используется (`UsePreviousAppDir=no`),
+  режим «для всех пользователей» недоступен. Иначе можно было поставить в
+  `C:\Program Files\OnAirLamp`, где нет прав на запись `app\data`;
+- запуск и ярлыки используют `wscript.exe` явно: прямой запуск `.vbs` давал
+  `CreateProcess: код 193` при нарушенной ассоциации файлов;
 - `report.cmd` проверен из установленной копии: архив создан, поиск значений
   `local_key` и `dev_id` в архиве — совпадений 0;
 - портативная копия ранее проверена отдельно (Толк и Zoom) и работает без

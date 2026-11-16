@@ -27,8 +27,9 @@ AppPublisher={#AppPublisher}
 DefaultDirName={localappdata}\Programs\OnAirLamp
 DefaultGroupName={#AppName}
 DisableProgramGroupPage=yes
+DisableDirPage=yes
+UsePreviousAppDir=no
 PrivilegesRequired=lowest
-PrivilegesRequiredOverridesAllowed=dialog
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 OutputDir=..\build
@@ -52,18 +53,18 @@ Source: "{#StageDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs c
 Source: "..\build\onair.ico"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
-Name: "{autoprograms}\OnAir Lamp"; Filename: "{app}\start.vbs"; IconFilename: "{app}\onair.ico"; WorkingDir: "{app}"
+Name: "{autoprograms}\OnAir Lamp"; Filename: "{sys}\wscript.exe"; Parameters: """{app}\start.vbs"""; IconFilename: "{app}\onair.ico"; WorkingDir: "{app}"
 Name: "{autoprograms}\Настройка OnAir Lamp"; Filename: "{app}\setup.cmd"; IconFilename: "{app}\onair.ico"; WorkingDir: "{app}"
 Name: "{autoprograms}\Проверка розетки"; Filename: "{app}\verify.cmd"; IconFilename: "{app}\onair.ico"; WorkingDir: "{app}"
 Name: "{autoprograms}\Отчёт для поддержки"; Filename: "{app}\report.cmd"; IconFilename: "{app}\onair.ico"; WorkingDir: "{app}"
 Name: "{autoprograms}\Если не работает"; Filename: "{app}\SUPPORT.md"
-Name: "{autodesktop}\OnAir Lamp"; Filename: "{app}\start.vbs"; IconFilename: "{app}\onair.ico"; WorkingDir: "{app}"; Tasks: desktopicon
+Name: "{autodesktop}\OnAir Lamp"; Filename: "{sys}\wscript.exe"; Parameters: """{app}\start.vbs"""; IconFilename: "{app}\onair.ico"; WorkingDir: "{app}"; Tasks: desktopicon
 
 [Registry]
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "OnAirLamp"; ValueData: "wscript.exe ""{app}\start.vbs"""; Flags: uninsdeletevalue; Tasks: autostart
 
 [Run]
-Filename: "{app}\start.vbs"; Description: "Запустить OnAir Lamp"; Flags: postinstall nowait skipifsilent
+Filename: "{sys}\wscript.exe"; Parameters: """{app}\start.vbs"""; Description: "Запустить OnAir Lamp"; Flags: postinstall nowait skipifsilent
 
 [Code]
 { При удалении спрашиваем про настройки подключения к розетке. Тихая

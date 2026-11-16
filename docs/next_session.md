@@ -39,6 +39,10 @@ Legacy по лампе больше не развивается и архиво�
   поднимется старая копия. Сейчас лампой управляют процессы из `D:\onair-lamp`
   (не установленная копия). Установленная копия после проверки удалена —
   решите, какую копию считать рабочей.
+- Основной репозиторий — `OnAirSwitch` (бывший `OnAirMeeting`), remote
+  `origin` = `git@github.com:vladimirovichivan/OnAirSwitch.git`. Отправка ждёт
+  добавления SSH-ключа `~/.ssh/github_onair.pub` в GitHub. Форк `Portable`
+  создаётся позже.
 
 ## Задача
 
@@ -51,8 +55,8 @@ Legacy по лампе больше не развивается и архиво�
 ## Требуют решения пользователя — спросить до действий
 
 1. Кто первый получатель на Windows 11 и кто на Windows 10 (фаза 4).
-2. Имя форка поставки и владелец репозитория на GitHub; создавать ли удалённый
-   репозиторий сейчас.
+2. Создание форка `Portable` и его владелец — позже, после отправки `main` в
+   `OnAirSwitch`.
 3. Какую копию считать рабочей: процессы из `D:\onair-lamp` или установленную из
    `%LOCALAPPDATA%\Programs\OnAirLamp`; когда переключать автозапуск с Legacy и
    когда можно проверить перезагрузку Windows.
@@ -93,6 +97,9 @@ Legacy по лампе больше не развивается и архиво�
 - Проверка установщика: `/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP-
   /CURRENTUSER /TASKS=autostart`; удаление — `unins000.exe /VERYSILENT`. Перед
   установкой и тестами останавливать другие копии (общий mutex).
+- Установщик ставит только в `%LOCALAPPDATA%\Programs\OnAirLamp`
+  (`DisableDirPage=yes`, `UsePreviousAppDir=no`); запуск и ярлыки — через
+  `wscript.exe`, не прямой `.vbs` (иначе код 193).
 - Mutex: `Local\LegacyPlugExecutor`, `Local\LegacyPlugTray` — два экземпляра
   одновременно не запустятся; общий для Legacy и нового проекта.
 - Корень вычисляется как `SCRIPT_DIR.parent.parent`, поэтому в проекте это
