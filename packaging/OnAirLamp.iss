@@ -40,6 +40,10 @@ Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
 AllowNoIcons=yes
+; Процессы Лампы скрытые и на WM_CLOSE не отвечают, поэтому Restart Manager
+; их не закроет. Останавливаем сами в коде (KillLampProcesses).
+CloseApplications=no
+RestartApplications=no
 
 [Languages]
 Name: "russian"; MessagesFile: "compiler:Languages\Russian.isl"
@@ -69,6 +73,44 @@ Filename: "{sys}\wscript.exe"; Parameters: """{app}\start.vbs"""; Description: "
 Filename: "{sys}\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\stop.ps1"" -IncludeTray"; Flags: runhidden; RunOnceId: "StopOnAirLamp"
 
 [Code]
+{ Скрытые процессы Лампы (pythonw.exe, powershell.exe наблюдателя) не отвечают
+  на запрос закрытия Restart Manager, поэтому установщик и деинсталлятор гасят
+  их сами, до копирования и удаления файлов. Фильтр — имя процесса и путь
+  установки в командной строке: чужие Python не затрагиваются. }
+function KillLampProcesses: Boolean;
+var
+  Script, ScriptPath, Root: String;
+  ResultCode: Integer;
+begin
+  Root := ExpandConstant('{app}');
+  ScriptPath := ExpandConstant('{tmp}') + '\onair-stop.ps1';
+  Script :=
+    '$root = ' + Chr(39) + Root + Chr(39) + #13#10 +
+    '$pattern = [Regex]::Escape($root)' + #13#10 +
+    'for ($attempt = 0; $attempt -lt 5; $attempt++) {' + #13#10 +
+    '  $found = @(Get-CimInstance Win32_Process | Where-Object {' + #13#10 +
+    '    $_.ProcessId -ne $PID -and' + #13#10 +
+    '    $_.Name -match ''^(python|pythonw|powershell)\.exe$'' -and' + #13#10 +
+    '    $_.CommandLine -match $pattern })' + #13#10 +
+    '  if ($found.Count -eq 0) { break }' + #13#10 +
+    '  $found | ForEach-Object {' + #13#10 +
+    '    Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }' + #13#10 +
+    '  Start-Sleep -Milliseconds 400' + #13#10 +
+    '}' + #13#10;
+
+  SaveStringToFile(ScriptPath, Script, False);
+  Result := Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
+    '-NoProfile -ExecutionPolicy Bypass -File "' + ScriptPath + '"',
+    '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  DeleteFile(ScriptPath);
+end;
+
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+begin
+  KillLampProcesses;
+  Result := '';
+end;
+
 { При удалении спрашиваем про настройки подключения к розетке. Тихая
   деинсталляция их сохраняет; /DELETEAPPSETTINGS удаляет без вопроса. }
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
@@ -79,6 +121,9 @@ var
 begin
   if CurUninstallStep <> usUninstall then
     Exit;
+
+  { Файлы ещё на месте: гасим процессы до [UninstallRun] и удаления. }
+  KillLampProcesses;
 
   SettingsFile := ExpandConstant('{app}\app\secrets\tuya_plug.json');
   if not FileExists(SettingsFile) then
