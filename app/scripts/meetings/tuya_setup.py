@@ -12,9 +12,14 @@ Smart Life и подписка на API "Smart Home Basic Service" (беспла
   python tuya_setup.py                     # регион eu (Central Europe)
   python tuya_setup.py --region we         # Western Europe
   python tuya_setup.py --address 192.168.111.124
-  python tuya_setup.py --verify            # проверить уже настроенную розетку
+  python tuya_setup.py --verify            # только проверить настроенную розетку
+  python tuya_setup.py --reconfigure       # записать ключи заново
 
-Для настройки достаточно стандартной библиотеки Python 3.9+. Режим `--verify`
+После записи настроек скрипт сразу проверяет розетку тем же режимом `--verify`.
+Повторный запуск без `--reconfigure` тоже выполняет проверку, а не отказывается
+работать: для пользователя это один инструмент «настройка и проверка».
+
+Для настройки достаточно стандартной библиотеки Python 3.9+. Проверка
 переключает розетку и возвращает её в исходное состояние, поэтому требует
 tinytuya и не запускается во время встречи (обойти — `--force`).
 """
@@ -342,6 +347,10 @@ def main() -> int:
                         help='проверить настроенную розетку: поиск, чтение, переключение и возврат')
     parser.add_argument('--force', action='store_true',
                         help='в режиме --verify переключать даже во время встречи')
+    parser.add_argument('--reconfigure', action='store_true',
+                        help='записать ключи заново, даже если файл настроек уже есть')
+    parser.add_argument('--skip-verify', action='store_true',
+                        help='не проверять розетку сразу после записи настроек')
     parser.add_argument('--out', type=Path, default=DEFAULT_OUT,
                         help='файл конфигурации: куда записать или что проверять в --verify')
     args = parser.parse_args()
@@ -349,10 +358,10 @@ def main() -> int:
     if args.verify:
         return verify(args.out, args.address, args.force)
 
-    if args.out.exists():
-        print(f'{args.out} уже существует — перезапись не выполняется.')
-        print('Удалите файл вручную, если действительно нужны новые ключи.')
-        return 1
+    if args.out.exists() and not args.reconfigure and not args.diagnose:
+        print(f'Розетка уже настроена: {args.out}')
+        print('Выполняю проверку подключения (перезаписать ключи: --reconfigure).')
+        return verify(args.out, args.address, args.force)
 
     print('Access ID и Access Secret из Tuya IoT Platform → ваш проект → Overview.')
     client_id = input('Access ID: ').strip()
@@ -452,7 +461,21 @@ def main() -> int:
         print('  внимание: адрес взят из облака и может быть внешним IP; для локального')
         print('  протокола укажите --address <IP в домашней сети> и повторите.')
     print('')
-    print('Проверка: python tuya_setup.py --verify  (переключение и возврат состояния)')
+    if args.skip_verify:
+        print('Проверка пропущена (--skip-verify).')
+    else:
+        print('Проверка подключения: чтение, переключение и возврат состояния.')
+        result = verify(args.out, args.address, args.force)
+        print('')
+        if result == 0:
+            print('Настройка и проверка завершены: розетка работает.')
+        elif result == 4:
+            print('Настройки сохранены. Сейчас идёт встреча, поэтому переключение')
+            print('не проверялось; проверка повторится при следующем запуске мастера.')
+        else:
+            print(f'Настройки сохранены, но проверка не пройдена (код {result}).')
+            print('Приложение всё равно запустится; если лампа не работает — SUPPORT.md.')
+    print('Повторная проверка: setup.cmd или tuya_setup.py --verify.')
     print('Если подключение не удастся, версия протокола подбирается: 3.3 → 3.4 → 3.5.')
     return 0
 

@@ -5,21 +5,12 @@
 
 $ErrorActionPreference = 'SilentlyContinue'
 $root = $PSScriptRoot
-$pattern = [Regex]::Escape($root)
 
-$running = Get-CimInstance Win32_Process |
-    Where-Object {
-        $_.ProcessId -ne $PID -and
-        $_.CommandLine -match $pattern -and
-        $_.CommandLine -match 'plug_executor\.py|tray_plug\.py|watch_meetings\.ps1'
-    }
-
-foreach ($process in $running) {
-    Stop-Process -Id $process.ProcessId -Force
-}
-
-if ($running) {
-    Start-Sleep -Seconds 2
+# Остановка вынесена в stop.ps1: тот же код использует кнопка «Выход» в трее
+# и деинсталлятор. В dev-копии stop.ps1 сам определяет корень на уровень выше.
+$stop = Join-Path $root 'stop.ps1'
+if (Test-Path $stop) {
+    & $stop -IncludeTray
 }
 
 $wscript = Join-Path $env:SystemRoot 'System32\wscript.exe'

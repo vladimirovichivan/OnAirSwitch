@@ -9,7 +9,7 @@
 # и есть packaging\OnAirLamp.iss. Компиляции кода нет: копируются .py/.ps1.
 
 param(
-    [string]$Version = '1.0.0',
+    [string]$Version = '1.0.1',
     [string]$PythonVersion = '3.12.10',
     [switch]$SkipInstaller
 )
@@ -77,6 +77,7 @@ Copy-Item (Join-Path $root 'app\scripts\meetings\*.ps1') $appScripts
 Copy-Item (Join-Path $root 'app\scripts\meetings\requirements.txt') $appScripts
 Copy-Item (Join-Path $root 'packaging\start.vbs') $stage
 Copy-Item (Join-Path $root 'packaging\restart.ps1') $stage
+Copy-Item (Join-Path $root 'packaging\stop.ps1') $stage
 Copy-Item (Join-Path $root 'packaging\setup.cmd') $stage
 Copy-Item (Join-Path $root 'packaging\verify.cmd') $stage
 Copy-Item (Join-Path $root 'packaging\report.cmd') $stage

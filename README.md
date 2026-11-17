@@ -58,9 +58,10 @@ powershell -NoProfile -File app\scripts\meetings\watch_meetings.ps1 -Once    # �
 .venv\Scripts\python.exe app\scripts\meetings\tuya_setup.py --verify         # розетка
 ```
 
-Первый запуск без настроек ожидаем: без `secrets\tuya_plug.json` исполнитель
-работает только в dry-run, трей показывает «розетка не настроена» и предлагает
-мастер.
+Первый запуск без `secrets\tuya_plug.json`: трей предлагает мастер настройки,
+исполнитель до настройки работает только в dry-run. Мастер сам проверяет
+розетку; повторный запуск `setup.cmd` предлагает проверку или перезапись ключей
+(`tuya_setup.py --reconfigure`).
 
 ## Сборка поставки
 

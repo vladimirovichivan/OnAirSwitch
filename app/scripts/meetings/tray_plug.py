@@ -15,6 +15,8 @@ plug_state.json, который обновляет исполнитель (plug_
 from __future__ import annotations
 
 import ctypes
+import os
+import subprocess
 import sys
 import threading
 import traceback
@@ -29,6 +31,7 @@ import plug_control as pc
 SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPT_DIR.parent.parent
 PACKAGE_ROOT = REPO_ROOT.parent
+CONFIG_PATH = REPO_ROOT / 'secrets' / 'tuya_plug.json'
 TRAY_LOG = REPO_ROOT / 'data' / 'work' / 'meetings' / 'tray.log'
 PLUG_LOG = REPO_ROOT / 'data' / 'work' / 'meetings' / 'plug.log'
 MUTEX_NAME = 'Local\\LegacyPlugTray'
@@ -91,6 +94,8 @@ def status_age(status: dict | None) -> float | None:
 
 
 def is_unconfigured() -> bool:
+    if not CONFIG_PATH.exists():
+        return True
     status = _state['status']
     return status is not None and status.get('configured') is False
 
@@ -191,7 +196,54 @@ def open_setup() -> None:
             _icon.notify(f'Не удалось открыть настройку: {exc}', 'Лампа On air')
 
 
+def first_run_prompt() -> None:
+    """Первый запуск без настроек: предложить сразу пройти мастер.
+
+    Диалог показывается в отдельном потоке, чтобы иконка в трее появилась
+    независимо от ответа. Отказ ничего не блокирует: трей продолжает работать
+    и пункт «Настроить розетку…» остаётся в меню.
+    """
+    answer = ctypes.windll.user32.MessageBoxW(
+        None,
+        'Розетка ещё не настроена, поэтому лампа пока не будет реагировать '
+        'на встречи.\n\n'
+        'Открыть мастер настройки? Для него нужны Access ID и Access Secret '
+        'из Tuya IoT Platform (шаги 3.1–3.4 инструкции).\n\n'
+        'Настроить можно и позже: значок лампы в трее → «Настроить розетку…».',
+        'OnAir Lamp',
+        0x00000004 | 0x00000020 | 0x00010000,  # MB_YESNO | MB_ICONQUESTION | MB_SETFOREGROUND
+    )
+    log(f'first run: setup prompt answered {answer}')
+    if answer == 6:  # IDYES
+        open_setup()
+
+
+def stop_all() -> None:
+    """Останавливает наблюдателя и исполнителя перед выходом из трея.
+
+    «Выход» означает полное выключение лампы, а не только закрытие иконки:
+    иначе исполнитель продолжал бы управлять розеткой без видимого интерфейса.
+    """
+    candidates = (PACKAGE_ROOT / 'stop.ps1', PACKAGE_ROOT / 'packaging' / 'stop.ps1')
+    path = next((item for item in candidates if item.exists()), None)
+    if path is None:
+        log('stop.ps1 not found: watcher and executor may keep running')
+        return
+    powershell = Path(os.environ.get('SystemRoot', r'C:\Windows')) / \
+        'System32' / 'WindowsPowerShell' / 'v1.0' / 'powershell.exe'
+    try:
+        subprocess.run(
+            [str(powershell), '-NoProfile', '-ExecutionPolicy', 'Bypass',
+             '-File', str(path)],
+            timeout=20, check=False, creationflags=0x08000000,  # CREATE_NO_WINDOW
+        )
+        log('exit requested: watcher and executor stopped')
+    except (OSError, subprocess.SubprocessError) as exc:
+        log(f'cannot stop watcher and executor: {type(exc).__name__}: {exc}')
+
+
 def quit_app() -> None:
+    stop_all()
     if _icon is not None:
         _icon.stop()
 
@@ -246,6 +298,8 @@ def main() -> int:
     refresh()
     _icon = pystray.Icon('legacy-plug', make_image(_state['kind'] or 'unknown'),
                          'Лампа On air', build_menu())
+    if not CONFIG_PATH.exists():
+        threading.Thread(target=first_run_prompt, daemon=True).start()
     stop = threading.Event()
     threading.Thread(target=poll_loop, args=(stop,), daemon=True).start()
     log('tray started')

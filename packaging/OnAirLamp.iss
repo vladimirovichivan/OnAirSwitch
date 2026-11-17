@@ -1,13 +1,13 @@
 ; Установщик OnAir Lamp (per-user, без прав администратора).
 ;
 ; Собирается из packaging\build.ps1:
-;   iscc /DAppVersion=1.0.0 /DStageDir=D:\...\build\portable\OnAirLamp-1.0.0-win64 OnAirLamp.iss
+;   iscc /DAppVersion=1.0.1 /DStageDir=D:\...\build\portable\OnAirLamp-1.0.1-win64 OnAirLamp.iss
 ;
 ; Раскладка повторяет портативную папку; app\data и app\secrets при удалении
 ; сохраняются, потому что установщик о них не знает.
 
 #ifndef AppVersion
-  #define AppVersion "1.0.0"
+  #define AppVersion "1.0.1"
 #endif
 
 #ifndef StageDir
@@ -54,8 +54,7 @@ Source: "..\build\onair.ico"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\OnAir Lamp"; Filename: "{sys}\wscript.exe"; Parameters: """{app}\start.vbs"""; IconFilename: "{app}\onair.ico"; WorkingDir: "{app}"
-Name: "{group}\Настройка OnAir Lamp"; Filename: "{app}\setup.cmd"; IconFilename: "{app}\onair.ico"; WorkingDir: "{app}"
-Name: "{group}\Проверка розетки"; Filename: "{app}\verify.cmd"; IconFilename: "{app}\onair.ico"; WorkingDir: "{app}"
+Name: "{group}\Настройка и проверка OnAir Lamp"; Filename: "{app}\setup.cmd"; IconFilename: "{app}\onair.ico"; WorkingDir: "{app}"
 Name: "{group}\Отчёт для поддержки"; Filename: "{app}\report.cmd"; IconFilename: "{app}\onair.ico"; WorkingDir: "{app}"
 Name: "{group}\Если не работает"; Filename: "{app}\SUPPORT.md"
 Name: "{autodesktop}\OnAir Lamp"; Filename: "{sys}\wscript.exe"; Parameters: """{app}\start.vbs"""; IconFilename: "{app}\onair.ico"; WorkingDir: "{app}"; Tasks: desktopicon
@@ -65,6 +64,9 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: 
 
 [Run]
 Filename: "{sys}\wscript.exe"; Parameters: """{app}\start.vbs"""; Description: "Запустить OnAir Lamp"; Flags: postinstall nowait skipifsilent
+
+[UninstallRun]
+Filename: "{sys}\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\stop.ps1"" -IncludeTray"; Flags: runhidden; RunOnceId: "StopOnAirLamp"
 
 [Code]
 { При удалении спрашиваем про настройки подключения к розетке. Тихая

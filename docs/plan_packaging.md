@@ -62,6 +62,7 @@ Python, поведение на Windows 10, UDP-поиск в коде, рабо
 ├── setup.cmd               мастер первой настройки
 ├── verify.cmd              проверка розетки и связи
 ├── report.cmd              zip журналов без секретов
+├── restart.ps1, stop.ps1   перезапуск и полная остановка процессов
 └── licenses\               Python (PSF), tinytuya (MIT), pystray (LGPL-3.0), Pillow (MIT-CMU)
 ```
 
@@ -177,8 +178,9 @@ assume_yes=True, byID=True)` и выбор по `dev_id`; поведение н�
    `tuya_discovery`.
 3. `OnAirLamp.iss`:
    - `PrivilegesRequired=lowest`, `DefaultDirName={localappdata}\Programs\OnAirLamp`;
-   - ярлыки: «OnAir Lamp» (`wscript.exe start.vbs`), «Настройка» (`setup.cmd`),
-     «Проверка розетки» (`verify.cmd`), «Отчёт для поддержки» (`report.cmd`);
+   - ярлыки: «OnAir Lamp» (`wscript.exe start.vbs`), «Настройка и проверка»
+     (`setup.cmd`), «Отчёт для поддержки» (`report.cmd`); `verify.cmd`
+     остаётся в папке установки для поддержки;
    - `[Registry]`: `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` →
      `wscript.exe "<путь>\start.vbs"`;
    - `[Run]`: предложение запустить после установки;
