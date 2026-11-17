@@ -1,13 +1,15 @@
 ; Установщик OnAir Lamp (per-user, без прав администратора).
 ;
 ; Собирается из packaging\build.ps1:
-;   iscc /DAppVersion=1.0.1 /DStageDir=D:\...\build\portable\OnAirLamp-1.0.1-win64 OnAirLamp.iss
+;   iscc /DAppVersion=1.0.2 /DStageDir=D:\...\build\portable\OnAirLamp-1.0.2-win64 OnAirLamp.iss
 ;
-; Раскладка повторяет портативную папку; app\data и app\secrets при удалении
-; сохраняются, потому что установщик о них не знает.
+; Раскладка повторяет портативную папку. Приложение пишет журналы и состояние
+; в app\data, кэш байткода — в __pycache__: установщик о них не знает, поэтому
+; они удаляются секцией [UninstallDelete]. app\secrets остаётся, только если
+; пользователь попросил сохранить настройки розетки.
 
 #ifndef AppVersion
-  #define AppVersion "1.0.1"
+  #define AppVersion "1.0.2"
 #endif
 
 #ifndef StageDir
@@ -70,7 +72,27 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: 
 Filename: "{sys}\wscript.exe"; Parameters: """{app}\start.vbs"""; Description: "Запустить OnAir Lamp"; Flags: postinstall nowait skipifsilent
 
 [UninstallRun]
-Filename: "{sys}\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\stop.ps1"" -IncludeTray"; Flags: runhidden; RunOnceId: "StopOnAirLamp"
+; Полный путь: в System32 файла powershell.exe нет (он в WindowsPowerShell\v1.0),
+; иначе запуск не удаётся, а Inno Setup сообщает «часть элементов не удалось удалить».
+Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\stop.ps1"" -IncludeTray"; Flags: runhidden; RunOnceId: "StopOnAirLamp"
+
+[UninstallDelete]
+; Всё, что приложение создаёт во время работы, удаляется вместе с ним: журналы
+; и состояние в app\data, кэш байткода __pycache__, временные файлы. Секция
+; обрабатывается рекурсивно, поэтому чистит и подкаталоги, о которых установщик
+; не знает. app\secrets сюда не входит: его судьбу решает вопрос в [Code]
+; (сохранить настройки розетки или удалить).
+Type: filesandordirs; Name: "{app}\app\data"
+Type: filesandordirs; Name: "{app}\app\scripts"
+Type: filesandordirs; Name: "{app}\python"
+Type: filesandordirs; Name: "{app}\vendor"
+Type: filesandordirs; Name: "{app}\tools"
+Type: filesandordirs; Name: "{app}\licenses"
+; Если файл настроек уже удалён вручную, пустые каталоги тоже не оставляем
+; (dirifempty уберёт их, только когда они пусты, — сохранённые настройки целы).
+Type: dirifempty; Name: "{app}\app\secrets"
+Type: dirifempty; Name: "{app}\app"
+Type: dirifempty; Name: "{app}"
 
 [Code]
 { Скрытые процессы Лампы (pythonw.exe, powershell.exe наблюдателя) не отвечают
@@ -144,8 +166,8 @@ begin
     'Удалить сохранённые настройки подключения к розетке?' + #13#10 + #13#10 +
     'Они позволяют после повторной установки продолжить работу без новой ' +
     'настройки розетки.' + #13#10 +
-    'Журналы и остальные данные останутся на месте.' + #13#10 + #13#10 +
-    'Если удалить, при следующей установке розетку нужно будет настроить заново.',
+    'Программа, журналы и остальные её файлы удаляются в любом случае.' + #13#10 + #13#10 +
+    'Если удалить настройки, при следующей установке розетку нужно будет настроить заново.',
     mbConfirmation, MB_YESNO or MB_DEFBUTTON2);
   if Answer = IDYES then
   begin

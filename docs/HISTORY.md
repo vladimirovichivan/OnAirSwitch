@@ -255,3 +255,44 @@ embeddable-Python и `vendor`.
 Не проверено: смена IP устройства, одновременные встречи в двух приложениях,
 поведение на Windows 10, работа после перезагрузки dev-копии (установленная
 копия проверена 16.11.2026).
+
+## Удаление без следов (17.11.2026)
+
+Пользователь удалил 1.0.1, выбрал удаление настроек и получил «Часть элементов
+не удалось удалить. Вы можете удалить их самостоятельно». В папке установки
+остались только журналы и состояние (`app\data\work\meetings`), программа,
+ярлыки, автозапуск и настройки были удалены.
+
+- Сообщение появлялось не из-за файлов: `[UninstallRun]` вызывал
+  `{sys}\powershell.exe`, которого в System32 нет. `CreateProcess failed (2)`
+  делал результат деинсталляции неуспешным (в логе — `Removed all? No`).
+  Путь заменён на `{sys}\WindowsPowerShell\v1.0\powershell.exe` — тот же,
+  что используют `start.vbs` и `KillLampProcesses`.
+- В `[UninstallDelete]` добавлены рекурсивные записи для `app\data`,
+  `app\scripts`, `python`, `vendor`, `tools`, `licenses`: удаляются журналы,
+  состояние и `__pycache__`, которые приложение создаёт при работе.
+  `app\secrets` в список не входит — его судьбу решает вопрос про настройки.
+- Проверено вживую на 1.0.2: `/DELETEAPPSETTINGS` — `Removed all? Yes`,
+  каталога установки не остаётся; тихое удаление с сохранением настроек —
+  `Removed all? Yes`, остаётся только `app\secrets\tuya_plug.json`.
+- Пункт «Настройка и проверка» открывал консоль с рваными командами
+  (`'--reconfigure' is not recognized`, `The filename, directory name, or
+  volume label syntax is incorrect`). Причина — `.cmd` в репозитории имели
+  LF-переводы строк: cmd.exe путает разбор такого файла, особенно после
+  `chcp 65001` и с кириллицей в строках. `setup.cmd`, `report.cmd`,
+  `verify.cmd` и `scripts\restart-dev.cmd` переведены на CRLF, в
+  `.gitattributes` добавлено `*.cmd text eol=crlf`. Проверены обе ветки
+  `setup.cmd` (первичная настройка и «настроить заново»).
+- Та же природа у сообщения «Не найден pythonw.exe…» из `start.vbs`: файл был
+  в UTF-8 без BOM, а Windows Script Host читает `.vbs` без BOM как ANSI, и
+  русский текст превращался в «кракозябры». `start.vbs` переведён в UTF-16 LE
+  с BOM (проверено: сообщение отображается корректно), в `.gitattributes`
+  закреплено `*.vbs -text`.
+- Заодно в `start.vbs` исправлено определение корня: dev-копия определяется по
+  наличию каталога `app`, а не файла `plug_executor.py`. Раньше при повреждённой
+  установке сообщение показывало путь `...\Programs\app\scripts\meetings`
+  вместо `...\OnAirLamp\app\scripts\meetings`. Оба сообщения
+  (нет файлов / нет pythonw.exe) теперь говорят «Переустановите OnAir Lamp».
+- Собрана версия **1.0.2** (17.11.2026) в `build\`:
+  `build\OnAirLamp-Setup-1.0.2.exe` — `b08b6627:24fd4eb`,
+  `build\OnAirLamp-1.0.2-win64.zip` — `eb9dbca4:41fc6d9f7`.
