@@ -347,7 +347,7 @@ def refresh() -> None:
     else:
         title_word = {'on': 'включена', 'off': 'выключена',
                       'paused': 'автоматика снята'}.get(kind, 'нет данных')
-    _icon.title = ('Лампа On air: ' + title_word + ' · ' + pc.describe(mode, until))[:120]
+    _icon.title = ('OnAir Lamp: ' + title_word + ' · ' + pc.describe(mode, until))[:120]
     _icon.update_menu()
 
 
@@ -357,7 +357,7 @@ def act(mode: str, spec: str = pc.DEFAULT_DEADLINE) -> None:
     except (OSError, ValueError) as exc:
         log(f'action failed: {mode}/{spec}: {exc}')
         if _icon is not None:
-            _icon.notify(f'Не удалось записать режим: {exc}', 'Лампа On air')
+            _icon.notify(f'Не удалось записать режим: {exc}', 'OnAir Lamp')
     refresh()
 
 
@@ -368,7 +368,7 @@ def open_log() -> None:
     except OSError as exc:
         log(f'cannot open {PLUG_LOG}: {exc}')
         if _icon is not None:
-            _icon.notify(f'Не удалось открыть журнал: {exc}', 'Лампа On air')
+            _icon.notify(f'Не удалось открыть журнал: {exc}', 'OnAir Lamp')
 
 
 def open_setup() -> None:
@@ -377,7 +377,7 @@ def open_setup() -> None:
     path = next((item for item in candidates if item.exists()), None)
     if path is None:
         if _icon is not None:
-            _icon.notify('Не найден setup.cmd — переустановите OnAir Lamp.', 'Лампа On air')
+            _icon.notify('Не найден setup.cmd — переустановите OnAir Lamp.', 'OnAir Lamp')
         return
     try:
         import os
@@ -385,7 +385,7 @@ def open_setup() -> None:
     except OSError as exc:
         log(f'cannot open {path}: {exc}')
         if _icon is not None:
-            _icon.notify(f'Не удалось открыть настройку: {exc}', 'Лампа On air')
+            _icon.notify(f'Не удалось открыть настройку: {exc}', 'OnAir Lamp')
 
 
 def first_run_prompt() -> None:
@@ -491,7 +491,7 @@ def main() -> int:
     _icon = pystray.Icon('legacy-plug',
                          make_image(_state['kind'] or 'unknown',
                                     _state['theme'] or system_theme()),
-                         'Лампа On air', build_menu())
+                         'OnAir Lamp', build_menu())
     if not CONFIG_PATH.exists():
         threading.Thread(target=first_run_prompt, daemon=True).start()
     stop = threading.Event()

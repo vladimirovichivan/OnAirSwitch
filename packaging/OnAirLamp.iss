@@ -42,7 +42,7 @@ Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
 AllowNoIcons=yes
-; Процессы Лампы скрытые и на WM_CLOSE не отвечают, поэтому Restart Manager
+; Процессы приложения скрытые и на WM_CLOSE не отвечают, поэтому Restart Manager
 ; их не закроет. Останавливаем сами в коде (KillLampProcesses).
 CloseApplications=no
 RestartApplications=no
@@ -70,6 +70,11 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: 
 
 [Run]
 Filename: "{sys}\wscript.exe"; Parameters: """{app}\start.vbs"""; Description: "Запустить OnAir Lamp"; Flags: postinstall nowait skipifsilent
+; README.txt — копия INSTALL.md в папке программы (её кладёт build.ps1). Галочка
+; стоит по умолчанию: инструкцию предлагаем открыть сразу, иначе получатель не
+; узнает, что розетку нужно настраивать мастером. Блокнот выбран намеренно: он
+; есть всегда и не зависит от ассоциаций .md/.txt.
+Filename: "{sys}\notepad.exe"; Parameters: """{app}\README.txt"""; Description: "Открыть README.txt — как установить и настроить приложение"; Flags: postinstall nowait skipifsilent
 
 [UninstallRun]
 ; Полный путь: в System32 файла powershell.exe нет (он в WindowsPowerShell\v1.0),
@@ -95,7 +100,7 @@ Type: dirifempty; Name: "{app}\app"
 Type: dirifempty; Name: "{app}"
 
 [Code]
-{ Скрытые процессы Лампы (pythonw.exe, powershell.exe наблюдателя) не отвечают
+{ Скрытые процессы приложения (pythonw.exe, powershell.exe наблюдателя) не отвечают
   на запрос закрытия Restart Manager, поэтому установщик и деинсталлятор гасят
   их сами, до копирования и удаления файлов. Фильтр — имя процесса и путь
   установки в командной строке: чужие Python не затрагиваются. }

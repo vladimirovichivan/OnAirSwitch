@@ -100,6 +100,12 @@ Copy-Item (Join-Path $root 'tools\report_support.py') (Join-Path $stage 'tools')
 Copy-Item (Join-Path $build 'onair.ico') $stage
 Copy-Item (Join-Path $root 'docs\SUPPORT.md') $stage
 Copy-Item (Join-Path $root 'docs\INSTALL.md') $stage
+# README.txt — та же инструкция, но простым текстом: установщик предлагает
+# открыть её в Блокноте сразу после установки. Конвертер убирает маркдаун,
+# который Блокнот не понимает, а источник остаётся один — docs\INSTALL.md.
+& (Join-Path $root '.venv\Scripts\python.exe') (Join-Path $root 'packaging\md_to_text.py') `
+    (Join-Path $root 'docs\INSTALL.md') (Join-Path $stage 'README.txt')
+if ($LASTEXITCODE -ne 0) { throw 'не удалось собрать README.txt из INSTALL.md' }
 if (Test-Path (Join-Path $root 'packaging\licenses')) {
     Copy-Item (Join-Path $root 'packaging\licenses') (Join-Path $stage 'licenses') -Recurse
 }

@@ -3,7 +3,9 @@
 
 Внутрь попадают только рабочие файлы лампы и выжимка из конфигурации:
 имя, адрес, версия протокола и номер DP. `local_key` и `dev_id` не включаются
-ни в каком виде — ни целиком, ни маской.
+ни в каком виде — ни целиком, ни маской. В `info.txt` также пишутся версия
+сборки приложения и версия Windows с номером сборки: по ним видно, на какой
+системе воспроизводится проблема.
 
   python tools\\report_support.py              # архив на рабочий стол
   python tools\\report_support.py --out D:\\Temp
@@ -16,6 +18,7 @@ from __future__ import annotations
 import argparse
 import ctypes
 import json
+import platform
 import sys
 import zipfile
 from datetime import datetime
@@ -94,6 +97,54 @@ def build_summary() -> str:
     return f'версия сборки: {version}, {built}, commit {commit}\n'
 
 
+def windows_values() -> dict:
+    """Поля CurrentVersion из реестра; на не-Windows и при ошибках — пусто."""
+    values = {}
+    try:
+        import winreg
+        with winreg.OpenKey(
+                winreg.HKEY_LOCAL_MACHINE,
+                r'SOFTWARE\Microsoft\Windows NT\CurrentVersion') as key:
+            for name in ('ProductName', 'DisplayVersion',
+                         'CurrentBuildNumber', 'UBR'):
+                try:
+                    values[name] = winreg.QueryValueEx(key, name)[0]
+                except OSError:
+                    pass
+    except (ImportError, OSError):
+        pass
+    return values
+
+
+def os_summary() -> str:
+    """Версия и сборка Windows без имени компьютера и пользователя."""
+    values = windows_values()
+    product = str(values.get('ProductName') or '').strip()
+    if not product:
+        return f'ОС: {platform.platform()}\n'
+    build_number = str(values.get('CurrentBuildNumber') or '').strip()
+    revision = str(values.get('UBR') or '').strip()
+    # В реестре Windows 11 нередко до сих пор называется Windows 10;
+    # настоящую версию надёжно различает номер сборки.
+    try:
+        if int(build_number) >= 22000:
+            product = product.replace('Windows 10', 'Windows 11', 1)
+    except ValueError:
+        pass
+    build = build_number or platform.version()
+    if build_number and revision:
+        build += f'.{revision}'
+    bits = {'64bit': '64-bit', '32bit': '32-bit'}.get(
+        platform.architecture()[0], platform.machine())
+    parts = [product]
+    if values.get('DisplayVersion'):
+        parts.append(str(values['DisplayVersion']).strip())
+    parts.append(f'сборка {build}')
+    if bits:
+        parts.append(str(bits))
+    return 'ОС: ' + ', '.join(parts) + '\n'
+
+
 def make_archive(out_dir: Path) -> tuple[Path, list[str]]:
     stamp = datetime.now().strftime('%Y%m%d-%H%M%S')
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -104,6 +155,7 @@ def make_archive(out_dir: Path) -> tuple[Path, list[str]]:
             'OnAir Lamp — отчёт для поддержки',
             f'создан: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}',
             build_summary().strip(),
+            os_summary().strip(),
             '',
             config_summary().strip(),
             '',
