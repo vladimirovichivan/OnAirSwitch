@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Рисует onair.ico тем же мотивом, что и иконка трея.
+r"""Рисует onair.ico тем же мотивом, что и иконка трея.
 
   python packaging\make_icon.py build\onair.ico
 """

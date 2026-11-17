@@ -16,6 +16,16 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
+
+# В поставку не должны попадать байткод и кэш: они появляются от pip и от
+# проверки импортов, привязаны к машине сборки и только раздувают архив.
+function Remove-Pycache {
+    param([string]$Path)
+    Get-ChildItem $Path -Recurse -Directory -Filter '__pycache__' -Force |
+        Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+    Get-ChildItem $Path -Recurse -File -Include '*.pyc', '*.pyo' -Force |
+        Remove-Item -Force -ErrorAction SilentlyContinue
+}
 $build = Join-Path $root 'build'
 $stage = Join-Path $build "portable\OnAirLamp-$Version-win64"
 $pythonDir = Join-Path $build 'python'
@@ -61,6 +71,7 @@ if (Test-Path $vendorDir) { Remove-Item $vendorDir -Recurse -Force }
 & (Join-Path $root '.venv\Scripts\python.exe') -m pip install --disable-pip-version-check `
     --target $vendorDir -r (Join-Path $root 'app\scripts\meetings\requirements.txt')
 if ($LASTEXITCODE -ne 0) { throw 'pip install в vendor завершился с ошибкой' }
+Remove-Pycache $vendorDir
 
 Write-Host "3/6 раскладка $stage"
 Write-Host '  иконка onair.ico'
@@ -107,8 +118,11 @@ $buildJson = Join-Path $stage 'app\build.json'
 
 Write-Host '4/6 проверка импортов в готовой раскладке'
 $stagePython = Join-Path $stage 'python\python.exe'
+$env:PYTHONDONTWRITEBYTECODE = '1'
 & $stagePython -c "import tinytuya, pystray, PIL, cryptography, plug_control, tuya_discovery; print('imports ok')"
 if ($LASTEXITCODE -ne 0) { throw 'импорты в портативной раскладке не проходят' }
+Remove-Item Env:\PYTHONDONTWRITEBYTECODE -ErrorAction SilentlyContinue
+Remove-Pycache $stage
 
 Write-Host '5/6 zip'
 $zipOut = Join-Path $build "OnAirLamp-$Version-win64.zip"
