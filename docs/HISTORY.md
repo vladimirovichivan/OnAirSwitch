@@ -210,9 +210,9 @@ embeddable-Python и `vendor`.
 - `build.ps1` вычищает `__pycache__` и `*.pyc` из `vendor` и раскладки, а
   проверку импортов выполняет с `PYTHONDONTWRITEBYTECODE`: в архив и установщик
   не попадает байткод машины сборки (zip похудел с 25,4 до 23,4 МБ).
-- собрана версия **1.0.1** (17.11.2026, `f46a0c7`) из чистого `build\`:
-  `build\OnAirLamp-Setup-1.0.1.exe` — `53a61f62…d97d16`,
-  `build\OnAirLamp-1.0.1-win64.zip` — `94849961…2308f0`.
+- собрана версия **1.0.1** (17.11.2026, `bfa96c1`) из чистого `build\`:
+  `build\OnAirLamp-Setup-1.0.1.exe` — `4da1826b…e6f2143d`,
+  `build\OnAirLamp-1.0.1-win64.zip` — `607919aa…d855f3cdaa`.
 
 ## Проверки, на которые можно опираться
 
