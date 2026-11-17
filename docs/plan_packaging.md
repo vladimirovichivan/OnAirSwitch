@@ -56,6 +56,7 @@ Python, поведение на Windows 10, UDP-поиск в коде, рабо
 ├── vendor\                 зависимости из requirements.txt (без pip)
 ├── app\
 │   ├── scripts\meetings\   скрипты как есть + build.json
+│   │   └── icons\          lamp-on.png, lamp-off.png (PNG с альфой)
 │   ├── data\work\meetings\ создаётся при первом запуске
 │   └── secrets\            создаётся мастером
 ├── start.vbs               один автозапуск: три процесса скрыто

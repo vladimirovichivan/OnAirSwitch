@@ -78,6 +78,15 @@ tray_plug.py / CLI ──> control.json ─┘            │
   видимого интерфейса.
 - иконка отражает фактическое состояние; если статус старше 30 с — «исполнитель
   не отвечает».
+- картинки состояний — `app\scripts\meetings\icons\lamp-on.png` (жёлтая) и
+  `lamp-off.png` (серая). Грузятся в PNG с альфой, обрезаются по содержимому и
+  приводятся к 64×64; если файла нет, лампа рисуется кодом, поэтому трей не
+  падает. «Снята автоматика» — серая иконка с полосами паузы, «нет данных» —
+  она же с прозрачностью 60 %.
+- исходники иконок нарисованы на чёрном фоне; фон снимает
+  `packaging\key_icon.py`: свечение получает альфу по яркости (с обратным
+  умножением цвета), корпус — по порогу с дилатацией, чтобы тёмный цоколь
+  остался непрозрачным.
 - не подключается к устройству; второй экземпляр блокируется mutex
   `Local\LegacyPlugTray`.
 - зависимости: `pystray`, `Pillow`.
@@ -112,6 +121,7 @@ tray_plug.py / CLI ──> control.json ─┘            │
 
 ```
 app\scripts\meetings\        скрипты и tuya_discovery.py
+app\scripts\meetings\icons\  lamp-on.png, lamp-off.png для трея
 app\build.json               версия, дата, commit (в репозитории нет — «dev»)
 app\data\work\meetings\      state.json, control.json, plug_state.json, журналы
 app\secrets\tuya_plug.json   dev_id, local_key, адрес, версия протокола, DP

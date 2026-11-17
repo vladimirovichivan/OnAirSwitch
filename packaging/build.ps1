@@ -85,6 +85,9 @@ $appScripts = Join-Path $stage 'app\scripts\meetings'
 New-Item -ItemType Directory -Force -Path $appScripts | Out-Null
 Copy-Item (Join-Path $root 'app\scripts\meetings\*.py') $appScripts
 Copy-Item (Join-Path $root 'app\scripts\meetings\*.ps1') $appScripts
+if (Test-Path (Join-Path $root 'app\scripts\meetings\icons')) {
+    Copy-Item (Join-Path $root 'app\scripts\meetings\icons') $appScripts -Recurse
+}
 Copy-Item (Join-Path $root 'app\scripts\meetings\requirements.txt') $appScripts
 Copy-Item (Join-Path $root 'packaging\start.vbs') $stage
 Copy-Item (Join-Path $root 'packaging\restart.ps1') $stage

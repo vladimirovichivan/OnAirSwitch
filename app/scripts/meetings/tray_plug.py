@@ -24,11 +24,12 @@ from datetime import datetime
 from pathlib import Path
 
 import pystray
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFilter
 
 import plug_control as pc
 
 SCRIPT_DIR = Path(__file__).resolve().parent
+ICONS_DIR = SCRIPT_DIR / 'icons'
 REPO_ROOT = SCRIPT_DIR.parent.parent
 PACKAGE_ROOT = REPO_ROOT.parent
 CONFIG_PATH = REPO_ROOT / 'secrets' / 'tuya_plug.json'
@@ -65,22 +66,109 @@ def acquire_single_instance() -> bool:
     return kernel32.GetLastError() != 183  # ERROR_ALREADY_EXISTS
 
 
-def make_image(kind: str) -> Image.Image:
-    size = 64
-    img = Image.new('RGBA', (size, size), (0, 0, 0, 0))
+def _asset(kind: str) -> Image.Image | None:
+    """Готовая иконка из app\\scripts\\meetings\\icons, если она есть."""
+    name = {'on': 'lamp-on.png', 'off': 'lamp-off.png'}.get(kind)
+    if not name:
+        return None
+    path = ICONS_DIR / name
+    try:
+        with Image.open(path) as source:
+            img = source.convert('RGBA')
+    except (OSError, ValueError) as exc:
+        log(f'icon {path.name} not loaded: {type(exc).__name__}: {exc}')
+        return None
+
+    # Исходники нарисованы с большими полями. Обрезаем по содержимому, но
+    # оставляем свечению воздух, и выравниваем в квадрат: иначе Windows
+    # растянет неквадратную картинку и лампа перекосится.
+    bounds = img.getchannel('A').point(
+        lambda value: 255 if value >= 8 else 0).getbbox()
+    if bounds:
+        img = img.crop(bounds)
+        side = round(max(img.size) * 1.06)
+        padded = Image.new('RGBA', (side, side), (0, 0, 0, 0))
+        padded.alpha_composite(
+            img, ((side - img.width) // 2, (side - img.height) // 2))
+        img = padded
+
+    return img.resize((64, 64), getattr(Image, 'Resampling', Image).LANCZOS)
+
+
+def _draw_lamp(kind: str) -> Image.Image:
+    """Запасная отрисовка, если файлов иконок нет.
+
+    Рисунок задан в сетке 64×64 и растеризуется с четырёхкратным запасом:
+    Windows берёт из иконки 16 и 32 px, и без сглаживания края рвутся.
+    """
+    scale = 4
+    px = 64 * scale
+    img = Image.new('RGBA', (px, px), (0, 0, 0, 0))
+
+    def box(*values: float) -> tuple[int, ...]:
+        return tuple(round(value * scale) for value in values)
+
+    on = kind == 'on'
+
+    if on:
+        # Мягкое свечение вокруг колбы — только у включённой лампы.
+        glow = Image.new('RGBA', (px, px), (0, 0, 0, 0))
+        ImageDraw.Draw(glow).ellipse(box(17, 19, 47, 47),
+                                     fill=(255, 205, 95, 95))
+        img.alpha_composite(glow.filter(ImageFilter.GaussianBlur(3 * scale)))
+
     draw = ImageDraw.Draw(img)
-    if kind == 'on':
-        draw.ellipse((6, 6, 58, 58), fill=(255, 196, 46, 255), outline=(55, 45, 10, 255), width=3)
-        draw.ellipse((22, 22, 42, 42), fill=(255, 236, 170, 255))
-    elif kind == 'off':
-        draw.ellipse((6, 6, 58, 58), outline=(140, 140, 140, 255), width=5)
-    elif kind == 'paused':
-        draw.ellipse((6, 6, 58, 58), fill=(108, 120, 140, 255), outline=(30, 34, 40, 255), width=3)
-        draw.rectangle((20, 28, 44, 36), fill=(245, 245, 245, 235))
-    else:  # unknown / состояние неизвестно
-        draw.ellipse((6, 6, 58, 58), fill=(120, 120, 120, 255))
-        draw.ellipse((26, 22, 38, 34), fill=(245, 245, 245, 235))
-        draw.rectangle((29, 40, 35, 47), fill=(245, 245, 245, 235))
+
+    arc = (255, 253, 246, 255) if on else (74, 81, 91, 255)
+    for radius, top in ((14.5, 7.5), (10.0, 15.0)):
+        draw.arc(box(32 - radius, top, 32 + radius, top + 2 * radius),
+                 start=200, end=340, fill=arc, width=round(3.4 * scale))
+
+    if on:
+        body, edge = (252, 204, 92, 255), (224, 166, 45, 255)
+        shine = (255, 231, 150, 255)
+    else:
+        body, edge = (176, 184, 195, 255), (128, 137, 149, 255)
+        shine = (211, 217, 225, 255)
+
+    base = (54, 60, 68, 255) if on else (58, 64, 72, 255)
+    inset = (72, 79, 89, 255) if on else (74, 80, 90, 255)
+
+    # Цоколь рисуется первым: колба и шейка перекрывают его верх.
+    draw.rounded_rectangle(box(25.0, 45.5, 39.0, 55.5), radius=2 * scale,
+                           fill=base)
+    draw.rounded_rectangle(box(27.5, 48.5, 36.5, 54.0), radius=1.2 * scale,
+                           fill=inset)
+    draw.rounded_rectangle(box(29.0, 54.0, 35.0, 56.5), radius=1 * scale,
+                           fill=base)
+
+    draw.polygon(box(24.0, 42, 40.0, 42, 37, 47, 27, 47), fill=body)
+    draw.ellipse(box(18, 18, 46, 46), fill=body, outline=edge,
+                 width=round(1.4 * scale))
+    draw.ellipse(box(23.5, 23.5, 40.5, 40.5), fill=shine)
+    draw.ellipse(box(26.0, 26.0, 31.0, 31.0), fill=(255, 250, 232, 235))
+
+    return img.resize((64, 64), getattr(Image, 'Resampling', Image).LANCZOS)
+
+
+def make_image(kind: str) -> Image.Image:
+    """Иконка трея для состояния лампы.
+
+    `on` и `off` берутся из файлов `icons\\lamp-on.png` и `icons\\lamp-off.png`;
+    если файла нет, рисуется запасной вариант. `paused` — та же выключенная
+    лампа с паузой, `unknown` — полупрозрачная, когда исполнитель не отвечает.
+    """
+    if kind in ('on', 'off'):
+        return _asset(kind) or _draw_lamp(kind)
+
+    img = (_asset('off') or _draw_lamp('off')).copy()
+    if kind == 'paused':
+        draw = ImageDraw.Draw(img)
+        for left in (26.5, 33.5):
+            draw.rounded_rectangle((left, 25.5, left + 3.0, 40.0), radius=1,
+                                   fill=(35, 40, 48, 255))
+    else:  # unknown: нет данных от исполнителя
+        img.putalpha(img.getchannel('A').point(lambda value: value * 60 // 100))
     return img
 
 
