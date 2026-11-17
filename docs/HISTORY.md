@@ -216,9 +216,9 @@ embeddable-Python и `vendor`.
   `OnAirLamp.iss` сам завершает процессы, у которых в командной строке путь
   установки (чужие Python не затрагиваются), затем ставит файлы. Деинсталлятор
   делает то же в начале удаления. `CloseApplications=no`.
-- собрана версия **1.0.1** (17.11.2026, `bfa96c1`) из чистого `build\`:
-  `build\OnAirLamp-Setup-1.0.1.exe` — `4da1826b…e6f2143d`,
-  `build\OnAirLamp-1.0.1-win64.zip` — `607919aa…d855f3cdaa`.
+- собрана версия **1.0.1** (17.11.2026, `9734e20`) из чистого `build\`:
+  `build\OnAirLamp-Setup-1.0.1.exe` — `e34ad535…eb66e5d`,
+  `build\OnAirLamp-1.0.1-win64.zip` — `77262edf…ef38d88`.
 
 ## Проверки, на которые можно опираться
 
