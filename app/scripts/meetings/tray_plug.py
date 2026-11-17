@@ -47,7 +47,7 @@ DEADLINE_ITEMS = (
 )
 
 _state: dict = {'control': None, 'status': None, 'mode': pc.MODE_AUTO,
-                'until': None, 'alive': False, 'kind': None}
+                'until': None, 'alive': False, 'kind': None, 'theme': None}
 _icon: pystray.Icon | None = None
 
 
@@ -151,24 +151,69 @@ def _draw_lamp(kind: str) -> Image.Image:
     return img.resize((64, 64), getattr(Image, 'Resampling', Image).LANCZOS)
 
 
-def make_image(kind: str) -> Image.Image:
+def system_theme() -> str:
+    """Тема оформления Windows: 'light' или 'dark'."""
+    try:
+        import winreg
+        path = (r'Software\Microsoft\Windows\CurrentVersion'
+                r'\Themes\Personalize')
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, path) as key:
+            value, _ = winreg.QueryValueEx(key, 'AppsUseLightTheme')
+        return 'light' if value else 'dark'
+    except (OSError, ImportError):
+        return 'light'
+
+
+def _lift_darks(img: Image.Image) -> Image.Image:
+    """Поднимает тёмные детали для тёмной темы.
+
+    Цоколь и контур нарисованы почти чёрными: на тёмной панели задач они
+    сливаются с фоном. Подъём тем сильнее, чем темнее пиксель, поэтому светлые
+    части (колба, корпус) не меняются, а оттенок сохраняется.
+    """
+    pixels = img.load()
+    for y in range(img.height):
+        for x in range(img.width):
+            r, g, b, a = pixels[x, y]
+            if a == 0:
+                continue
+            top = max(r, g, b)
+            if top >= 140:
+                continue
+            lift = round(220 * (1 - top / 140) ** 2)
+            if top == 0:
+                pixels[x, y] = (120, 120, 120, a)
+                continue
+            scale = (top + lift) / top
+            pixels[x, y] = (min(255, round(r * scale)),
+                            min(255, round(g * scale)),
+                            min(255, round(b * scale)), a)
+    return img
+
+
+def make_image(kind: str, theme: str = 'light') -> Image.Image:
     """Иконка трея для состояния лампы.
 
     `on` и `off` берутся из файлов `icons\\lamp-on.png` и `icons\\lamp-off.png`;
     если файла нет, рисуется запасной вариант. `paused` — та же выключенная
     лампа с паузой, `unknown` — полупрозрачная, когда исполнитель не отвечает.
+    На тёмной теме тёмный цоколь поднимается по яркости.
     """
     if kind in ('on', 'off'):
-        return _asset(kind) or _draw_lamp(kind)
+        img = _asset(kind) or _draw_lamp(kind)
+    else:
+        img = (_asset('off') or _draw_lamp('off')).copy()
+        if kind == 'paused':
+            draw = ImageDraw.Draw(img)
+            for left in (26.5, 33.5):
+                draw.rounded_rectangle((left, 25.5, left + 3.0, 40.0),
+                                       radius=1, fill=(35, 40, 48, 255))
+        else:  # unknown: нет данных от исполнителя
+            img.putalpha(
+                img.getchannel('A').point(lambda value: value * 60 // 100))
 
-    img = (_asset('off') or _draw_lamp('off')).copy()
-    if kind == 'paused':
-        draw = ImageDraw.Draw(img)
-        for left in (26.5, 33.5):
-            draw.rounded_rectangle((left, 25.5, left + 3.0, 40.0), radius=1,
-                                   fill=(35, 40, 48, 255))
-    else:  # unknown: нет данных от исполнителя
-        img.putalpha(img.getchannel('A').point(lambda value: value * 60 // 100))
+    if theme == 'dark':
+        img = _lift_darks(img)
     return img
 
 
@@ -231,13 +276,14 @@ def refresh() -> None:
         elif status.get('actual') is False:
             kind = 'off'
 
-    changed = kind != _state['kind']
+    theme = system_theme()
+    changed = kind != _state['kind'] or theme != _state.get('theme')
     _state.update(control=control, status=status, mode=mode, until=until,
-                  alive=alive, kind=kind)
+                  alive=alive, kind=kind, theme=theme)
     if _icon is None:
         return
     if changed:
-        _icon.icon = make_image(kind)
+        _icon.icon = make_image(kind, theme)
     if is_unconfigured():
         title_word = 'розетка не настроена'
     else:
@@ -384,7 +430,9 @@ def main() -> int:
         return 0
 
     refresh()
-    _icon = pystray.Icon('legacy-plug', make_image(_state['kind'] or 'unknown'),
+    _icon = pystray.Icon('legacy-plug',
+                         make_image(_state['kind'] or 'unknown',
+                                    _state['theme'] or system_theme()),
                          'Лампа On air', build_menu())
     if not CONFIG_PATH.exists():
         threading.Thread(target=first_run_prompt, daemon=True).start()
