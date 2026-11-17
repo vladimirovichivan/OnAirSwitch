@@ -24,7 +24,7 @@ from datetime import datetime
 from pathlib import Path
 
 import pystray
-from PIL import Image, ImageDraw, ImageFilter
+from PIL import Image, ImageChops, ImageDraw, ImageFilter
 
 import plug_control as pc
 
@@ -66,6 +66,64 @@ def acquire_single_instance() -> bool:
     return kernel32.GetLastError() != 183  # ERROR_ALREADY_EXISTS
 
 
+def _body_mask(img: Image.Image) -> tuple[Image.Image | None,
+                                          tuple[int, int, int, int] | None]:
+    """Маска самой крупной связной фигуры и её границы.
+
+    У включённой лампы сверху нарисованы дуги Wi-Fi — отдельные фигуры. В трее
+    на 16–24 px они превращаются в бледную дымку, но занимают четверть высоты,
+    поэтому в иконку берётся только корпус лампы. Поиск идёт по уменьшенной
+    копии альфы: перебирать 1024×1024 пикселей на каждом обновлении слишком
+    долго.
+    """
+    step = 4
+    alpha = img.getchannel('A')
+    size = (max(1, img.width // step), max(1, img.height // step))
+    solid = alpha.resize(size, Image.BOX).point(
+        lambda value: 255 if value >= 96 else 0)
+    width, height = solid.size
+    pixels = solid.load()
+    seen = bytearray(width * height)
+    best: list[tuple[int, int]] = []
+
+    for y in range(height):
+        for x in range(width):
+            index = y * width + x
+            if seen[index] or not pixels[x, y]:
+                continue
+            stack = [(x, y)]
+            seen[index] = 1
+            points = []
+            while stack:
+                cx, cy = stack.pop()
+                points.append((cx, cy))
+                for nx, ny in ((cx + 1, cy), (cx - 1, cy),
+                               (cx, cy + 1), (cx, cy - 1)):
+                    if 0 <= nx < width and 0 <= ny < height:
+                        other = ny * width + nx
+                        if not seen[other] and pixels[nx, ny]:
+                            seen[other] = 1
+                            stack.append((nx, ny))
+            if len(points) > len(best):
+                best = points
+
+    if not best:
+        return None, None
+
+    xs = [point[0] for point in best]
+    ys = [point[1] for point in best]
+    bounds = (min(xs) * step, min(ys) * step,
+              (max(xs) + 1) * step, (max(ys) + 1) * step)
+    coarse = Image.new('L', (width, height), 0)
+    fill = coarse.load()
+    for x, y in best:
+        fill[x, y] = 255
+    mask = coarse.resize(img.size, getattr(
+        Image, 'Resampling', Image).BILINEAR).point(
+            lambda value: 255 if value >= 128 else 0)
+    return mask, bounds
+
+
 def _asset(kind: str) -> Image.Image | None:
     """Готовая иконка из app\\scripts\\meetings\\icons, если она есть."""
     name = {'on': 'lamp-on.png', 'off': 'lamp-off.png'}.get(kind)
@@ -79,14 +137,18 @@ def _asset(kind: str) -> Image.Image | None:
         log(f'icon {path.name} not loaded: {type(exc).__name__}: {exc}')
         return None
 
-    # Исходники нарисованы с большими полями. Обрезаем по содержимому, но
-    # оставляем свечению воздух, и выравниваем в квадрат: иначе Windows
+    # В трее остаётся только корпус: дуги и ореол свечения не попадают в кадр.
+    # Затем обрезаем по содержимому и выравниваем в квадрат: иначе Windows
     # растянет неквадратную картинку и лампа перекосится.
-    bounds = img.getchannel('A').point(
-        lambda value: 255 if value >= 8 else 0).getbbox()
-    if bounds:
-        img = img.crop(bounds)
-        side = round(max(img.size) * 1.06)
+    mask, bounds = _body_mask(img)
+    if mask is not None:
+        img.putalpha(ImageChops.multiply(img.getchannel('A'), mask))
+        pad = max(2, round(max(bounds[2] - bounds[0],
+                               bounds[3] - bounds[1]) * 0.015))
+        img = img.crop((max(0, bounds[0] - pad), max(0, bounds[1] - pad),
+                        min(img.width, bounds[2] + pad),
+                        min(img.height, bounds[3] + pad)))
+        side = round(max(img.size) * 1.03)
         padded = Image.new('RGBA', (side, side), (0, 0, 0, 0))
         padded.alpha_composite(
             img, ((side - img.width) // 2, (side - img.height) // 2))
@@ -99,7 +161,8 @@ def _draw_lamp(kind: str) -> Image.Image:
     """Запасная отрисовка, если файлов иконок нет.
 
     Рисунок задан в сетке 64×64 и растеризуется с четырёхкратным запасом:
-    Windows берёт из иконки 16 и 32 px, и без сглаживания края рвутся.
+    Windows берёт из иконки 16 и 32 px, и без сглаживания края рвутся. Дуги
+    Wi-Fi, как и в PNG, не рисуются: лампа должна занимать всю плитку.
     """
     scale = 4
     px = 64 * scale
@@ -113,16 +176,11 @@ def _draw_lamp(kind: str) -> Image.Image:
     if on:
         # Мягкое свечение вокруг колбы — только у включённой лампы.
         glow = Image.new('RGBA', (px, px), (0, 0, 0, 0))
-        ImageDraw.Draw(glow).ellipse(box(17, 19, 47, 47),
+        ImageDraw.Draw(glow).ellipse(box(8, 4, 56, 52),
                                      fill=(255, 205, 95, 95))
         img.alpha_composite(glow.filter(ImageFilter.GaussianBlur(3 * scale)))
 
     draw = ImageDraw.Draw(img)
-
-    arc = (255, 253, 246, 255) if on else (74, 81, 91, 255)
-    for radius, top in ((14.5, 7.5), (10.0, 15.0)):
-        draw.arc(box(32 - radius, top, 32 + radius, top + 2 * radius),
-                 start=200, end=340, fill=arc, width=round(3.4 * scale))
 
     if on:
         body, edge = (252, 204, 92, 255), (224, 166, 45, 255)
@@ -135,18 +193,18 @@ def _draw_lamp(kind: str) -> Image.Image:
     inset = (72, 79, 89, 255) if on else (74, 80, 90, 255)
 
     # Цоколь рисуется первым: колба и шейка перекрывают его верх.
-    draw.rounded_rectangle(box(25.0, 45.5, 39.0, 55.5), radius=2 * scale,
+    draw.rounded_rectangle(box(23.0, 47.0, 41.0, 57.5), radius=2 * scale,
                            fill=base)
-    draw.rounded_rectangle(box(27.5, 48.5, 36.5, 54.0), radius=1.2 * scale,
+    draw.rounded_rectangle(box(26.0, 50.0, 38.0, 56.0), radius=1.2 * scale,
                            fill=inset)
-    draw.rounded_rectangle(box(29.0, 54.0, 35.0, 56.5), radius=1 * scale,
+    draw.rounded_rectangle(box(28.0, 56.0, 36.0, 59.0), radius=1 * scale,
                            fill=base)
 
-    draw.polygon(box(24.0, 42, 40.0, 42, 37, 47, 27, 47), fill=body)
-    draw.ellipse(box(18, 18, 46, 46), fill=body, outline=edge,
+    draw.polygon(box(18.0, 43, 46.0, 43, 42, 48, 22, 48), fill=body)
+    draw.ellipse(box(12, 8, 52, 48), fill=body, outline=edge,
                  width=round(1.4 * scale))
-    draw.ellipse(box(23.5, 23.5, 40.5, 40.5), fill=shine)
-    draw.ellipse(box(26.0, 26.0, 31.0, 31.0), fill=(255, 250, 232, 235))
+    draw.ellipse(box(18, 14, 46, 42), fill=shine)
+    draw.ellipse(box(21.0, 17.0, 27.0, 23.0), fill=(255, 250, 232, 235))
 
     return img.resize((64, 64), getattr(Image, 'Resampling', Image).LANCZOS)
 
@@ -205,9 +263,9 @@ def make_image(kind: str, theme: str = 'light') -> Image.Image:
         img = (_asset('off') or _draw_lamp('off')).copy()
         if kind == 'paused':
             draw = ImageDraw.Draw(img)
-            for left in (26.5, 33.5):
-                draw.rounded_rectangle((left, 25.5, left + 3.0, 40.0),
-                                       radius=1, fill=(35, 40, 48, 255))
+            for left in (24.5, 35.0):
+                draw.rounded_rectangle((left, 19.0, left + 4.5, 37.0),
+                                       radius=1.5, fill=(35, 40, 48, 255))
         else:  # unknown: нет данных от исполнителя
             img.putalpha(
                 img.getchannel('A').point(lambda value: value * 60 // 100))
