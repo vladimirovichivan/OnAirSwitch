@@ -1,7 +1,7 @@
 ; Установщик OnAir Lamp (per-user, без прав администратора).
 ;
 ; Собирается из packaging\build.ps1:
-;   iscc /DAppVersion=1.1.0 /DStageDir=D:\...\build\portable\OnAirLamp-1.1.0-win64 OnAirLamp.iss
+;   iscc /DAppVersion=1.1.1 /DStageDir=D:\...\build\portable\OnAirLamp-1.1.1-win64 OnAirLamp.iss
 ;
 ; Раскладка повторяет портативную папку. Приложение пишет журналы и состояние
 ; в app\data, кэш байткода — в __pycache__: установщик о них не знает, поэтому
@@ -9,7 +9,7 @@
 ; пользователь попросил сохранить настройки розетки.
 
 #ifndef AppVersion
-  #define AppVersion "1.1.0"
+  #define AppVersion "1.1.1"
 #endif
 
 #ifndef StageDir

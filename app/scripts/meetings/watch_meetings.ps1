@@ -479,7 +479,7 @@ if ($Once) {
 }
 
 # --- Защита от второго экземпляра ---
-$mutex = New-Object Threading.Mutex($false, 'Local\LegacyMeetingsWatcher')
+$mutex = New-Object Threading.Mutex($false, 'Local\OnAirLampMeetingsWatcher')
 $hasMutex = $false
 try { $hasMutex = $mutex.WaitOne(0) } catch [Threading.AbandonedMutexException] { $hasMutex = $true }
 if (-not $hasMutex) {

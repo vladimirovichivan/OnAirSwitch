@@ -43,7 +43,7 @@ PLUG_LOG = MEETINGS_DIR / 'plug.log'
 EVENTS_LOG = MEETINGS_DIR / 'events.log'
 MEETINGS_STATE = MEETINGS_DIR / 'state.json'
 REPORT_SCRIPT = PACKAGE_ROOT / 'tools' / 'report_support.py'
-MUTEX_NAME = 'Local\\LegacyPlugTray'
+MUTEX_NAME = 'Local\\OnAirLampPlugTray'
 POLL_SECONDS = 2.0
 STATUS_STALE_SECONDS = 30
 # Наблюдатель пишет state.json не реже раза в 10 с; 45 с — с запасом.
@@ -916,7 +916,7 @@ def main() -> int:
         return 0
 
     refresh()
-    _icon = pystray.Icon('legacy-plug',
+    _icon = pystray.Icon('onair-lamp',
                          make_image(_state['kind'] or 'unknown',
                                     _state['theme'] or system_theme()),
                          'OnAir Lamp', build_menu())

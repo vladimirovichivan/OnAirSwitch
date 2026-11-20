@@ -1,84 +1,100 @@
 # OnAir Lamp
 
-Лампа «On air»: умная розетка Tuya горит, пока идёт видеовстреча в Толке,
-Телемосте или Zoom, и гаснет, когда встреч нет. Локальный протокол, без облака
-в повседневной работе, без прав администратора.
+**English** | [Русский](README.ru.md)
 
-Проект выделен из `D:\Legacy`, где остались только история решений D-54…D-63;
-копия лампы, данные, ключ розетки и её автозапуск из Legacy удалены 16.11.2026.
-Код в `app\scripts\meetings\` — проверенные скрипты, поведение при переезде не
-менялось.
+An "On air" indicator for your desk: a Tuya smart plug switches a lamp on while a
+video meeting is running in Microsoft Teams (Talk), Telemost or Zoom, and turns
+it off when the meeting ends. Everything runs locally — no cloud account is
+needed in everyday use, and no administrator rights are required.
 
-## Состояние
+[**Download the latest release**](https://github.com/vladimirovichivan/OnAirSwitch/releases/latest)
 
-- [x] Проект создан, код перенесён.
-- [x] Локальный запуск из `D:\onair-lamp` проверен на живых встречах
-      (Толк, Zoom, Телемост, 16.11.2026).
-- [x] Проверка розетки (`--verify`) и поиск адреса по UDP.
-- [x] Автономная сборка (эмбеддированный Python + Inno Setup): портативный zip
-      и установщик; проверены установка, автозапуск, удаление и повторная
-      установка (16.11.2026).
-- [x] Мастер настройки, проверка розетки, отчёт для поддержки.
-- [x] Копия лампы и автозапуск убраны из Legacy; работает только эта копия
-      (16.11.2026). Проверка перезагрузкой Windows пройдена 16.11.2026.
-- [ ] Приёмка на чужом ПК (Windows 11 и Windows 10).
+## How it works
 
-Разработка ведётся в `main` этого проекта; версия для передачи другим людям —
-ветка `Portable`, которая следует за основной веткой. Релизы — GitHub Releases,
-дополнительно портативный zip (D-64, D-65).
+- A PowerShell watcher detects meeting windows of supported apps and writes
+  events to a local log. It never controls the device itself.
+- A separate executor reads the desired state, talks to the plug over the local
+  Tuya protocol and verifies every command by reading the state back.
+- A tray icon shows the current meeting and its duration, the lamp state, the
+  reason for that state, and lets you switch the lamp on or off for a chosen
+  time or disable automation.
+- A small supervisor starts and restarts all three processes, so a crashed
+  component recovers on its own.
 
-План работ и критерии готовности — [`docs/plan_packaging.md`](docs/plan_packaging.md).
+The device is polled only when a command is needed, and the plug address is
+rediscovered over UDP if the router assigns a new one.
 
-## Раскладка
+## Features
 
-```
-app\scripts\meetings\   супервизор, наблюдатель, исполнитель, трей, настройка и поиск Tuya
-docs\                   архитектура, история решений, план сборки, поддержка
-packaging\              сборка, сценарий установщика, запуск трёх процессов
-tools\                  отчёт для поддержки (zip без ключей)
-build\                  результат сборки: портативная папка, zip, установщик
-tests\                  тесты чистых функций (план)
-```
+- Meeting detection by visible window titles (Teams/Talk, Telemost, Zoom),
+  with a 3-sample threshold to avoid flicker.
+- Local Tuya protocol; keys are stored only in a local file, never uploaded.
+- Manual modes: on/off until a deadline, pause automation, resume.
+- English and Russian UI; defaults to the Windows display language.
+- Guided first-run setup, plug verification and a support report that contains
+  logs but no keys or device identifiers.
+- Automatic update check through GitHub Releases, with SHA-256 verification of
+  the installer before it is launched.
+- Single-file installer for Windows 10/11 (per-user, no UAC) and a portable ZIP.
 
-## Быстрый старт (для разработки)
+## Requirements
 
-Нужен Python 3.12. Один раз:
+- Windows 10 or Windows 11 (64-bit).
+- A Tuya-compatible smart plug added to the Smart Life app.
+- The PC and the plug on the same local network (not a guest Wi-Fi).
+- For building from source: Python 3.12 and, optionally, Inno Setup 7 or 6.
+
+## Install
+
+1. Download `OnAirLamp-Setup-x.y.z.exe` from
+   [Releases](https://github.com/vladimirovichivan/OnAirSwitch/releases/latest).
+2. Run it and keep the "Start OnAir Lamp at sign-in" option enabled.
+3. On first launch the app offers a setup wizard: enter the Tuya device ID,
+   local key and address (the address can be found over UDP).
+
+The full end-user guide is in [`docs/INSTALL.md`](docs/INSTALL.md) (Russian, as
+shipped with the installer as `README.txt`). Troubleshooting is in
+[`docs/SUPPORT.md`](docs/SUPPORT.md).
+
+## Build from source
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\setup-dev.ps1
-```
-
-Затем — `packaging\start.vbs` (запускает супервизор, а тот — наблюдатель,
-исполнитель и трей скрыто) или вручную:
-
-```powershell
-.venv\Scripts\python.exe app\scripts\meetings\plug_executor.py --once        # dry-run
-.venv\Scripts\pythonw.exe app\scripts\meetings\tray_plug.py                  # трей
-powershell -NoProfile -File app\scripts\meetings\watch_meetings.ps1 -Once    # диагностика
-.venv\Scripts\python.exe app\scripts\meetings\tuya_setup.py --verify         # розетка
-```
-
-Первый запуск без `secrets\tuya_plug.json`: трей предлагает мастер настройки,
-исполнитель до настройки работает только в dry-run. Мастер сам проверяет
-розетку; повторный запуск `setup.cmd` предлагает проверку или перезапись ключей
-(`tuya_setup.py --reconfigure`).
-
-## Сборка поставки
-
-```powershell
 powershell -ExecutionPolicy Bypass -File packaging\build.ps1
 ```
 
-Результат: `build\portable\OnAirLamp-<версия>-win64\`, zip и, если найден
-Inno Setup 7/6, `build\OnAirLamp-Setup-<версия>.exe`. Хеши — в
-`build\SHA256SUMS.txt`. Обычные правки кода пересборки не требуют: для себя
-достаточно перезапустить процессы (`scripts\restart-dev.cmd`).
+The result is written to `build\`: a portable folder, a ZIP archive, and — if
+Inno Setup is installed — `OnAirLamp-Setup-<version>.exe`. Checksums are stored
+in `build\SHA256SUMS.txt`.
 
-## Документы
+For development runs, use `packaging\start.vbs` or start the components
+manually:
 
-- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — как устроено и почему.
-- [`docs/HISTORY.md`](docs/HISTORY.md) — решения D-54…D-65 и проверки.
-- [`docs/plan_packaging.md`](docs/plan_packaging.md) — план автономной сборки.
-- [`docs/SUPPORT.md`](docs/SUPPORT.md) — что делать, если не работает.
-- [`docs/INSTALL.md`](docs/INSTALL.md) — инструкция для получателя: установка,
-  настройка Tuya, обновление и удаление.
+```powershell
+.venv\Scripts\python.exe app\scripts\meetings\plug_executor.py --once
+.venv\Scripts\pythonw.exe app\scripts\meetings\tray_plug.py
+powershell -NoProfile -File app\scripts\meetings\watch_meetings.ps1 -Once
+.venv\Scripts\python.exe app\scripts\meetings\tuya_setup.py --verify
+```
+
+## Privacy
+
+- The app does not open a cloud connection for its daily work; it only talks to
+  the plug on the local network.
+- Tuya credentials and the local key stay in
+  `%LOCALAPPDATA%\Programs\OnAirLamp\app\secrets\tuya_plug.json` on your PC.
+- Window titles are written to a local log during the trial period; the support
+  report excludes keys and device identifiers.
+- The update check sends a single anonymous request to the GitHub Releases API.
+
+## Documentation
+
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — design and components.
+- [`docs/HISTORY.md`](docs/HISTORY.md) — decisions and verification log.
+- [`docs/plan_packaging.md`](docs/plan_packaging.md) — packaging plan and status.
+- [`docs/SUPPORT.md`](docs/SUPPORT.md) — troubleshooting.
+- [`docs/INSTALL.md`](docs/INSTALL.md) — end-user installation guide.
+
+## License
+
+[MIT](LICENSE) © 2026 vladimirovichivan

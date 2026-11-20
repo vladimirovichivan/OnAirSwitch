@@ -99,7 +99,7 @@ start.vbs ──> supervisor.py ──> watch_meetings.ps1 ──> state.json �
   устройство по `dev_id` и продолжает с найденным адресом; в журнал пишется
   `address rediscovered: <старый> -> <новый>`. Конфиг не перезаписывается.
 - при старте пишет версию сборки из `app\build.json`; файла нет — `build dev`.
-- второй экземпляр блокируется mutex `Local\LegacyPlugExecutor`.
+- второй экземпляр блокируется mutex `Local\OnAirLampPlugExecutor`.
 
 ### `plug_control.py` — намерение и CLI
 
@@ -147,7 +147,7 @@ start.vbs ──> supervisor.py ──> watch_meetings.ps1 ──> state.json �
   для чёрного свечение получает альфу по яркости с обратным умножением цвета,
   для белого цвет восстанавливается по обратной композиции над белым.
 - не подключается к устройству; второй экземпляр блокируется mutex
-  `Local\LegacyPlugTray`.
+  `Local\OnAirLampPlugTray`.
 - зависимости: `pystray`, `Pillow`.
 
 ### `i18n.py` — язык интерфейса

@@ -5,8 +5,8 @@
 
   pythonw supervisor.py
 
-Наблюдатель держит mutex `Local\\LegacyMeetingsWatcher`, исполнитель —
-`Local\\LegacyPlugExecutor`, трей — `Local\\LegacyPlugTray`. По этим mutex
+Наблюдатель держит mutex `Local\\OnAirLampMeetingsWatcher`, исполнитель —
+`Local\\OnAirLampPlugExecutor`, трей — `Local\\OnAirLampPlugTray`. По этим mutex
 супервизор понимает, что процесс уже запущен (например, вторым экземпляром
 start.vbs), и не плодит дубликаты: такой процесс он «усыновляет» и следит за
 ним, пока mutex не исчезнет. Перезапуск — с нарастающей паузой (2…60 с), чтобы
@@ -31,7 +31,7 @@ REPO_ROOT = SCRIPT_DIR.parent.parent
 DATA_DIR = REPO_ROOT / 'data' / 'work' / 'meetings'
 LOG_PATH = DATA_DIR / 'supervisor.log'
 
-MUTEX_NAME = 'Local\\LegacyPlugSupervisor'
+MUTEX_NAME = 'Local\\OnAirLampPlugSupervisor'
 POLL_SECONDS = 5.0
 MAX_BACKOFF = 60.0
 STABLE_SECONDS = 60.0
@@ -39,9 +39,9 @@ CREATE_NO_WINDOW = 0x08000000
 SYNCHRONIZE = 0x00100000
 
 COMPONENTS = (
-    {'name': 'watcher', 'mutex': 'Local\\LegacyMeetingsWatcher'},
-    {'name': 'executor', 'mutex': 'Local\\LegacyPlugExecutor'},
-    {'name': 'tray', 'mutex': 'Local\\LegacyPlugTray'},
+    {'name': 'watcher', 'mutex': 'Local\\OnAirLampMeetingsWatcher'},
+    {'name': 'executor', 'mutex': 'Local\\OnAirLampPlugExecutor'},
+    {'name': 'tray', 'mutex': 'Local\\OnAirLampPlugTray'},
 )
 
 _kernel32 = ctypes.windll.kernel32
