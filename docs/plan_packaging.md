@@ -210,7 +210,7 @@ assume_yes=True, byID=True)` и выбор по `dev_id`; поведение н�
   `OnAirLamp-report-<дата>-<время>.zip` на рабочем столе; внутри `info.txt`,
   `plug.log`, `events.log`, `state.json`, `control.json`, `plug_state.json`;
   `local_key` и `dev_id` не включаются (в `info.txt` — только «скрыт»);
-- артефакты (пересборка 16.11.2026 с `INSTALL.md`, коммит `42d3561`):
+- артефакты (пересборка 16.11.2026 с `INSTALL.md`):
   `build\OnAirLamp-1.0.0-win64.zip` — `c4837dee…a6d2219`,
   `build\OnAirLamp-Setup-1.0.0.exe` — `faa60e6d…8a7d37dd58`;
   первая сборка — `061c1d7f…1fb2d0b` и `8bd62f9f…0410186a1`;
@@ -218,7 +218,7 @@ assume_yes=True, byID=True)` и выбор по `dev_id`; поведение н�
   /TASKS=autostart` → код 0, каталог `%LOCALAPPDATA%\Programs\OnAirLamp`, папка
   «OnAir Lamp» в меню Пуск с пятью ярлыками,
   `HKCU\…\Run` → `wscript.exe "...\start.vbs"`;
-  установленная копия запустилась, в журнале `build 1.0.0 (2026-11-16, 5b76c6a)`,
+  установленная копия запустилась, в журнале `build 1.0.0 (2026-11-16)`,
   розетка подтвердила `off`;
 - повторная установка поверх: `app\secrets\tuya_plug.json` и журналы сохранены,
   приложение запустилось;
