@@ -30,9 +30,9 @@ DATA_DIR = ROOT / 'app' / 'data' / 'work' / 'meetings'
 CONFIG = ROOT / 'app' / 'secrets' / 'tuya_plug.json'
 BUILD = ROOT / 'app' / 'build.json'
 
-DATA_FILES = ('plug.log', 'events.log', 'state.json', 'control.json',
-              'plug_state.json')
-LOG_FILES = ('plug.log', 'events.log')
+DATA_FILES = ('plug.log', 'events.log', 'tray.log', 'supervisor.log',
+              'state.json', 'control.json', 'plug_state.json')
+LOG_FILES = ('plug.log', 'events.log', 'tray.log', 'supervisor.log')
 LOG_TAIL_BYTES = 512 * 1024
 
 # CSIDL_DESKTOPDIRECTORY; SHGetFolderPath учитывает перенос рабочего стола

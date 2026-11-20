@@ -1,7 +1,7 @@
 ﻿# Сборка портативной версии OnAir Lamp.
 #
 #   powershell -ExecutionPolicy Bypass -File packaging\build.ps1
-#   powershell ... -Version 1.0.2
+#   powershell ... -Version 1.1.0
 #
 # Скачивает официальный embeddable Python, ставит зависимости в vendor\,
 # проверяет импорты под эмбеддированным интерпретатором и складывает готовую
@@ -9,7 +9,7 @@
 # и есть packaging\OnAirLamp.iss. Компиляции кода нет: копируются .py/.ps1.
 
 param(
-    [string]$Version = '1.0.2',
+    [string]$Version = '1.1.0',
     [string]$PythonVersion = '3.12.10',
     [switch]$SkipInstaller
 )
@@ -85,6 +85,7 @@ $appScripts = Join-Path $stage 'app\scripts\meetings'
 New-Item -ItemType Directory -Force -Path $appScripts | Out-Null
 Copy-Item (Join-Path $root 'app\scripts\meetings\*.py') $appScripts
 Copy-Item (Join-Path $root 'app\scripts\meetings\*.ps1') $appScripts
+Copy-Item (Join-Path $root 'app\scripts\meetings\*.json') $appScripts
 if (Test-Path (Join-Path $root 'app\scripts\meetings\icons')) {
     Copy-Item (Join-Path $root 'app\scripts\meetings\icons') $appScripts -Recurse
 }

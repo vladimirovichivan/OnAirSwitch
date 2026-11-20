@@ -1,4 +1,4 @@
-﻿# Перезапуск трёх процессов OnAir Lamp из этого проекта.
+﻿# Перезапуск процессов OnAir Lamp (супервизор и три процесса) из этого проекта.
 #
 #   powershell -ExecutionPolicy Bypass -File scripts\restart-dev.ps1
 #
@@ -25,7 +25,7 @@ $targets = Get-CimInstance Win32_Process | Where-Object {
     $_.ProcessId -ne $PID -and
     ($_.Name -eq 'pythonw.exe' -or $_.Name -eq 'powershell.exe') -and
     $_.CommandLine -match $rootPattern -and
-    $_.CommandLine -match 'plug_executor\.py|tray_plug\.py|watch_meetings\.ps1'
+    $_.CommandLine -match 'supervisor\.py|plug_executor\.py|tray_plug\.py|watch_meetings\.ps1'
 }
 
 if ($targets) {
@@ -45,7 +45,29 @@ $running = Get-CimInstance Win32_Process | Where-Object {
     $_.ProcessId -ne $PID -and
     ($_.Name -eq 'pythonw.exe' -or $_.Name -eq 'powershell.exe') -and
     $_.CommandLine -match $rootPattern -and
-    $_.CommandLine -match 'plug_executor\.py|tray_plug\.py|watch_meetings\.ps1'
+    $_.CommandLine -match 'supervisor\.py|plug_executor\.py|tray_plug\.py|watch_meetings\.ps1'
 }
-Write-Host ('Запущено процессов: {0}' -f @($running).Count) -ForegroundColor Green
-$running | Select-Object ProcessId, Name, CommandLine | Format-List
+
+# В dev-копии pythonw.exe из .venv — это обёртка venvlauncher: она запускает
+# настоящий Python из базовой установки и ждёт его. Поэтому на один компонент
+# приходится две записи в списке процессов. Считаем компоненты, а не записи.
+$components = @(
+    @{ File = 'supervisor\.py'; Label = 'супервизор' },
+    @{ File = 'watch_meetings\.ps1'; Label = 'наблюдатель' },
+    @{ File = 'plug_executor\.py'; Label = 'исполнитель' },
+    @{ File = 'tray_plug\.py'; Label = 'трей' }
+)
+$missing = @()
+foreach ($component in $components) {
+    $pids = @($running | Where-Object { $_.CommandLine -match $component.File } |
+            ForEach-Object { $_.ProcessId })
+    if ($pids.Count -eq 0) {
+        $missing += $component.Label
+        Write-Host ('  {0}: не запущен' -f $component.Label) -ForegroundColor Red
+    } else {
+        Write-Host ('  {0}: pid {1}' -f $component.Label, ($pids -join ', '))
+    }
+}
+$ok = $components.Count - $missing.Count
+$color = if ($missing.Count -eq 0) { 'Green' } else { 'Yellow' }
+Write-Host ('Компонентов запущено: {0} из {1}' -f $ok, $components.Count) -ForegroundColor $color

@@ -1,5 +1,6 @@
-# Останавливает процессы OnAir Lamp: наблюдатель встреч и исполнитель розетки,
-# а с ключом -IncludeTray — ещё и трей.
+# Останавливает процессы OnAir Lamp: супервизор, наблюдатель встреч и исполнитель
+# розетки, а с ключом -IncludeTray — ещё и трей. Супервизор завершается первым:
+# иначе он успел бы поднять остановленные процессы снова.
 #
 # «Выход» в трее вызывает скрипт без -IncludeTray: трей завершает иконку сам.
 # Перезапуск после настройки и деинсталлятор вызывают с -IncludeTray.
@@ -24,6 +25,21 @@ if ($Root) {
 }
 $base = (Resolve-Path $base).Path
 $pattern = [Regex]::Escape($base)
+
+$supervisor = Get-CimInstance Win32_Process |
+    Where-Object {
+        $_.ProcessId -ne $PID -and
+        $_.CommandLine -match $pattern -and
+        $_.CommandLine -match 'supervisor\.py'
+    }
+
+foreach ($process in $supervisor) {
+    Stop-Process -Id $process.ProcessId -Force
+}
+
+if ($supervisor) {
+    Start-Sleep -Milliseconds 400
+}
 
 $targets = 'plug_executor\.py|watch_meetings\.ps1'
 if ($IncludeTray) {

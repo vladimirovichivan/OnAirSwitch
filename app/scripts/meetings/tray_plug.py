@@ -15,6 +15,7 @@ plug_state.json, который обновляет исполнитель (plug_
 from __future__ import annotations
 
 import ctypes
+import json
 import os
 import subprocess
 import sys
@@ -33,11 +34,17 @@ ICONS_DIR = SCRIPT_DIR / 'icons'
 REPO_ROOT = SCRIPT_DIR.parent.parent
 PACKAGE_ROOT = REPO_ROOT.parent
 CONFIG_PATH = REPO_ROOT / 'secrets' / 'tuya_plug.json'
-TRAY_LOG = REPO_ROOT / 'data' / 'work' / 'meetings' / 'tray.log'
-PLUG_LOG = REPO_ROOT / 'data' / 'work' / 'meetings' / 'plug.log'
+MEETINGS_DIR = REPO_ROOT / 'data' / 'work' / 'meetings'
+TRAY_LOG = MEETINGS_DIR / 'tray.log'
+PLUG_LOG = MEETINGS_DIR / 'plug.log'
+EVENTS_LOG = MEETINGS_DIR / 'events.log'
+MEETINGS_STATE = MEETINGS_DIR / 'state.json'
+REPORT_SCRIPT = PACKAGE_ROOT / 'tools' / 'report_support.py'
 MUTEX_NAME = 'Local\\LegacyPlugTray'
 POLL_SECONDS = 2.0
 STATUS_STALE_SECONDS = 30
+# Наблюдатель пишет state.json не реже раза в 10 с; 45 с — с запасом.
+MEETINGS_STALE_SECONDS = 45
 
 DEADLINE_ITEMS = (
     ('на 1 час', '1h'),
@@ -46,8 +53,11 @@ DEADLINE_ITEMS = (
     ('до ручного возврата', 'manual'),
 )
 
-_state: dict = {'control': None, 'status': None, 'mode': pc.MODE_AUTO,
-                'until': None, 'alive': False, 'kind': None, 'theme': None}
+_state: dict = {'control': None, 'status': None, 'meetings': None,
+                'mode': pc.MODE_AUTO, 'until': None, 'alive': False,
+                'meetings_alive': False, 'meeting': False,
+                'meeting_names': [], 'meeting_seconds': None,
+                'badge': False, 'kind': None, 'theme': None}
 _icon: pystray.Icon | None = None
 
 
@@ -249,13 +259,14 @@ def _lift_darks(img: Image.Image) -> Image.Image:
     return img
 
 
-def make_image(kind: str, theme: str = 'light') -> Image.Image:
+def make_image(kind: str, theme: str = 'light', badge: bool = False) -> Image.Image:
     """Иконка трея для состояния лампы.
 
     `on` и `off` берутся из файлов `icons\\lamp-on.png` и `icons\\lamp-off.png`;
     если файла нет, рисуется запасной вариант. `paused` — та же выключенная
     лампа с паузой, `unknown` — полупрозрачная, когда исполнитель не отвечает.
-    На тёмной теме тёмный цоколь поднимается по яркости.
+    На тёмной теме тёмный цоколь поднимается по яркости. `badge` — оранжевая
+    точка в углу: встреча идёт, а лампа выключена.
     """
     if kind in ('on', 'off'):
         img = _asset(kind) or _draw_lamp(kind)
@@ -272,6 +283,11 @@ def make_image(kind: str, theme: str = 'light') -> Image.Image:
 
     if theme == 'dark':
         img = _lift_darks(img)
+    if badge:
+        draw = ImageDraw.Draw(img)
+        ring = (245, 245, 245, 235) if theme == 'dark' else (35, 40, 48, 235)
+        draw.ellipse((43, 43, 62, 62), fill=(255, 138, 0, 255),
+                     outline=ring, width=3)
     return img
 
 
@@ -284,11 +300,91 @@ def status_age(status: dict | None) -> float | None:
     return (datetime.now() - stamp).total_seconds()
 
 
+def human_duration(seconds: float) -> str:
+    """Длительность для меню: «меньше минуты», «42 мин», «1 ч 05 мин»."""
+    minutes = int(max(0.0, seconds)) // 60
+    if minutes < 1:
+        return 'меньше минуты'
+    hours, minutes = divmod(minutes, 60)
+    if hours and minutes:
+        return f'{hours} ч {minutes:02d} мин'
+    if hours:
+        return f'{hours} ч'
+    return f'{minutes} мин'
+
+
+def remaining_suffix(until: datetime | None,
+                     now: datetime | None = None) -> str:
+    if until is None:
+        return ''
+    seconds = (until - (now or datetime.now())).total_seconds()
+    if seconds <= 0:
+        return ''
+    return ' · осталось ' + human_duration(seconds)
+
+
+def read_meetings() -> dict | None:
+    """state.json наблюдателя; None — файла нет или он битый."""
+    try:
+        raw = MEETINGS_STATE.read_text(encoding='utf-8-sig')
+    except OSError:
+        return None
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def meetings_age(state: dict | None,
+                 now: datetime | None = None) -> float | None:
+    if not state:
+        return None
+    stamp = pc.parse_stamp(state.get('updated'))
+    if stamp is None:
+        return None
+    return ((now or datetime.now()) - stamp).total_seconds()
+
+
+def meeting_summary(state: dict | None,
+                    now: datetime | None = None) -> tuple[list[str], float | None]:
+    """Приложения с идущей встречей и секунды с начала самой ранней."""
+    if not state:
+        return [], None
+    apps = state.get('apps')
+    if not isinstance(apps, dict):
+        return [], None
+    names: list[str] = []
+    starts: list[datetime] = []
+    for key, info in apps.items():
+        if not isinstance(info, dict) or info.get('state') != 'meeting':
+            continue
+        names.append(str(info.get('app') or key))
+        since = pc.parse_stamp(info.get('since'))
+        if since is not None:
+            starts.append(since)
+    started = min(starts) if starts else None
+    seconds = ((now or datetime.now()) - started).total_seconds() \
+        if started else None
+    return names, seconds
+
+
 def is_unconfigured() -> bool:
     if not CONFIG_PATH.exists():
         return True
     status = _state['status']
     return status is not None and status.get('configured') is False
+
+
+def meeting_text(item=None) -> str:
+    names = _state.get('meeting_names') or []
+    if not names:
+        return ''
+    text = 'Встреча: ' + ', '.join(names)
+    seconds = _state.get('meeting_seconds')
+    if seconds is not None:
+        text += ' · ' + human_duration(seconds)
+    return text
 
 
 def lamp_text(item=None) -> str:
@@ -307,7 +403,30 @@ def lamp_text(item=None) -> str:
 
 
 def mode_text(item=None) -> str:
-    return 'Режим: ' + pc.describe(_state['mode'], _state['until'])
+    return 'Режим: ' + pc.describe(_state['mode'], _state['until']) + \
+        remaining_suffix(_state['until'])
+
+
+def reason_text(item=None) -> str:
+    """Почему лампа сейчас такая: ручной режим, конфликт или нет данных."""
+    status = _state.get('status')
+    mode = _state.get('mode')
+    until = _state.get('until')
+    actual = status.get('actual') if status else None
+    if not _state.get('alive'):
+        return 'Исполнитель не отвечает — статус и команды могут не работать'
+    if not _state.get('meetings_alive'):
+        return 'Нет данных о встречах — наблюдатель не отвечает'
+    if _state.get('meeting') and mode == pc.MODE_AUTO and actual is False:
+        return 'Встреча идёт, а лампа выключена — откройте plug.log'
+    if _state.get('meeting') and mode == pc.MODE_OFF:
+        return 'Встреча идёт, но лампа выключена вручную' + \
+            remaining_suffix(until)
+    if not _state.get('meeting') and mode == pc.MODE_ON:
+        return 'Встреч нет, лампа включена вручную' + remaining_suffix(until)
+    if mode == pc.MODE_PAUSED:
+        return 'Автоматика снята — лампа не меняется' + remaining_suffix(until)
+    return ''
 
 
 def error_text() -> str | None:
@@ -321,9 +440,17 @@ def error_text() -> str | None:
 def refresh() -> None:
     control = pc.read_control()
     status = pc.read_status()
+    meetings = read_meetings()
     mode, until, _ = pc.resolve(control)
     age = status_age(status)
     alive = age is not None and age <= STATUS_STALE_SECONDS
+    m_age = meetings_age(meetings)
+    meetings_alive = m_age is not None and m_age <= MEETINGS_STALE_SECONDS
+    names, seconds = meeting_summary(meetings if meetings_alive else None)
+    meeting = bool(names)
+    actual = status.get('actual') if status is not None and alive else None
+    # Оранжевая точка: автоматика считает, что идёт встреча, а лампа выключена.
+    badge = bool(meeting and mode == pc.MODE_AUTO and actual is False)
 
     kind = 'unknown'
     if status is not None and alive:
@@ -335,19 +462,27 @@ def refresh() -> None:
             kind = 'off'
 
     theme = system_theme()
-    changed = kind != _state['kind'] or theme != _state.get('theme')
-    _state.update(control=control, status=status, mode=mode, until=until,
-                  alive=alive, kind=kind, theme=theme)
+    changed = (kind != _state['kind'] or theme != _state.get('theme')
+               or badge != _state.get('badge'))
+    _state.update(control=control, status=status, meetings=meetings, mode=mode,
+                  until=until, alive=alive, meetings_alive=meetings_alive,
+                  meeting=meeting, meeting_names=names, meeting_seconds=seconds,
+                  badge=badge, kind=kind, theme=theme)
     if _icon is None:
         return
     if changed:
-        _icon.icon = make_image(kind, theme)
+        _icon.icon = make_image(kind, theme, badge)
     if is_unconfigured():
         title_word = 'розетка не настроена'
     else:
         title_word = {'on': 'включена', 'off': 'выключена',
                       'paused': 'автоматика снята'}.get(kind, 'нет данных')
-    _icon.title = ('OnAir Lamp: ' + title_word + ' · ' + pc.describe(mode, until))[:120]
+    title = 'OnAir Lamp: ' + title_word + ' · ' + pc.describe(mode, until)
+    if meeting:
+        title += ' · встреча ' + ', '.join(names)
+        if seconds is not None:
+            title += ' ' + human_duration(seconds)
+    _icon.title = title[:120]
     _icon.update_menu()
 
 
@@ -369,6 +504,90 @@ def open_log() -> None:
         log(f'cannot open {PLUG_LOG}: {exc}')
         if _icon is not None:
             _icon.notify(f'Не удалось открыть журнал: {exc}', 'OnAir Lamp')
+
+
+def open_events_log() -> None:
+    try:
+        os.startfile(str(EVENTS_LOG))
+    except OSError as exc:
+        log(f'cannot open {EVENTS_LOG}: {exc}')
+        if _icon is not None:
+            _icon.notify(f'Не удалось открыть журнал встреч: {exc}', 'OnAir Lamp')
+
+
+def _console_python() -> Path | None:
+    """python.exe рядом с текущим интерпретатором: нужен видимый прогресс."""
+    exe = Path(sys.executable)
+    candidate = exe.with_name('python.exe')
+    if candidate.exists():
+        return candidate
+    return exe if exe.name.lower() == 'python.exe' else None
+
+
+def open_verify() -> None:
+    """Проверка розетки: verify.cmd из установки или скрипт в dev-копии."""
+    installed = PACKAGE_ROOT / 'verify.cmd'
+    if installed.exists():
+        try:
+            os.startfile(str(installed))
+            return
+        except OSError as exc:
+            log(f'cannot open {installed}: {exc}')
+    python = _console_python()
+    script = SCRIPT_DIR / 'tuya_setup.py'
+    if python is None or not script.exists():
+        if _icon is not None:
+            _icon.notify('Не найден verify.cmd — переустановите OnAir Lamp.',
+                         'OnAir Lamp')
+        return
+    comspec = os.environ.get('ComSpec', 'cmd.exe')
+    try:
+        subprocess.Popen(
+            [comspec, '/k', f'"{python}" "{script}" --verify'],
+            cwd=str(SCRIPT_DIR), creationflags=0x00000010,  # CREATE_NEW_CONSOLE
+        )
+    except OSError as exc:
+        log(f'cannot start verify: {exc}')
+        if _icon is not None:
+            _icon.notify(f'Не удалось проверить розетку: {exc}', 'OnAir Lamp')
+
+
+def make_report() -> None:
+    """Собирает zip для поддержки скрыто и сообщает имя файла."""
+    if not REPORT_SCRIPT.exists():
+        if _icon is not None:
+            _icon.notify('Не найден report_support.py — переустановите OnAir Lamp.',
+                         'OnAir Lamp')
+        return
+
+    def worker() -> None:
+        env = dict(os.environ, PYTHONIOENCODING='utf-8')
+        try:
+            proc = subprocess.run(
+                [sys.executable, str(REPORT_SCRIPT)],
+                capture_output=True, text=True, encoding='utf-8', errors='replace',
+                env=env, timeout=120, creationflags=0x08000000,  # CREATE_NO_WINDOW
+            )
+        except (OSError, subprocess.SubprocessError) as exc:
+            log(f'report failed: {type(exc).__name__}: {exc}')
+            if _icon is not None:
+                _icon.notify(f'Не удалось собрать отчёт: {exc}', 'OnAir Lamp')
+            return
+        output = (proc.stdout or '') + (proc.stderr or '')
+        archive = ''
+        for line in output.splitlines():
+            if line.startswith('архив:'):
+                archive = line.split(':', 1)[1].strip()
+        log(f'report: rc={proc.returncode} archive={archive or "?"}')
+        if proc.returncode == 0 and archive:
+            if _icon is not None:
+                _icon.notify(f'Отчёт на рабочем столе: {Path(archive).name}',
+                             'OnAir Lamp')
+        elif _icon is not None:
+            _icon.notify('Не удалось собрать отчёт — подробности в tray.log.',
+                         'OnAir Lamp')
+
+    threading.Thread(target=worker, daemon=True).start()
 
 
 def open_setup() -> None:
@@ -454,8 +673,12 @@ def _deadline_submenu(mode: str) -> pystray.Menu:
 
 def build_menu() -> pystray.Menu:
     return pystray.Menu(
+        pystray.MenuItem(meeting_text, None, enabled=False,
+                         visible=lambda item: meeting_text() != ''),
         pystray.MenuItem(lamp_text, None, enabled=False),
         pystray.MenuItem(mode_text, None, enabled=False),
+        pystray.MenuItem(reason_text, None, enabled=False,
+                         visible=lambda item: reason_text() != ''),
         pystray.Menu.SEPARATOR,
         pystray.MenuItem('Включить', _deadline_submenu(pc.MODE_ON)),
         pystray.MenuItem('Выключить', _deadline_submenu(pc.MODE_OFF)),
@@ -468,7 +691,10 @@ def build_menu() -> pystray.Menu:
                          visible=lambda item: error_text() is not None, enabled=False),
         pystray.MenuItem('Настроить розетку…', open_setup,
                          visible=lambda item: is_unconfigured()),
+        pystray.MenuItem('Проверить розетку', open_verify),
         pystray.MenuItem('Открыть plug.log', open_log),
+        pystray.MenuItem('Открыть журнал встреч', open_events_log),
+        pystray.MenuItem('Отчёт для поддержки', make_report),
         pystray.MenuItem('Выход', quit_app),
     )
 

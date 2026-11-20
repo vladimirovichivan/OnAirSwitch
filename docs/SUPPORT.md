@@ -46,6 +46,8 @@
 %LOCALAPPDATA%\Programs\OnAirLamp\app\data\work\meetings\
     events.log       события встреч (что распознал наблюдатель)
     plug.log         действия исполнителя и ошибки устройства
+    tray.log         ошибки и действия иконки в трее
+    supervisor.log   запуски и перезапуски процессов сторожем
     state.json       состояние встреч (heartbeat)
     plug_state.json  фактическое состояние лампы
     control.json     ручной режим

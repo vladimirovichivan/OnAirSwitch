@@ -46,6 +46,7 @@ param(
     [string] $LogPath = '',
     [string] $StatePath = '',
     [string[]] $Apps = @('talk', 'zoom', 'telemost'),
+    [string] $ProfilesPath = '',
     [switch] $Once,
     [switch] $Quiet,
     # Пока функционал проходит апробацию, заголовки окон пишутся в лог по умолчанию
@@ -118,6 +119,48 @@ $appProfiles = @(
         ClassPatterns  = @()
     }
 )
+
+# --- Профили из profiles.json ---
+# Файл необязателен: он дополняет встроенные профили и может заменить профиль с
+# тем же Id (например, если обновление Zoom изменило заголовок или класс окна).
+# Ошибка в файле не ломает наблюдатель: используется встроенный набор, а причина
+# попадает в events.log при старте. Схема — в docs\ARCHITECTURE.md.
+$profileNote = 'profiles: built-in'
+if (-not $ProfilesPath) { $ProfilesPath = Join-Path $PSScriptRoot 'profiles.json' }
+if (Test-Path -LiteralPath $ProfilesPath) {
+    try {
+        $document = Get-Content -LiteralPath $ProfilesPath -Raw -Encoding UTF8 |
+            ConvertFrom-Json
+        $overrides = @()
+        if ($null -ne $document) {
+            if ($document.PSObject.Properties.Name -contains 'profiles') {
+                $overrides = @($document.profiles)
+            } else {
+                $overrides = @($document)
+            }
+        }
+        $merged = [ordered]@{}
+        foreach ($profile in $appProfiles) { $merged[$profile.Id] = $profile }
+        $loaded = 0
+        foreach ($profile in $overrides) {
+            if (-not $profile.Id -or -not $profile.Name -or
+                    -not $profile.Processes -or -not $profile.ExeName) {
+                throw 'профиль без id/name/processes/exeName'
+            }
+            if ($profile.WindowMode -notin @('anyOtherVisible', 'patterns', 'audioOnly')) {
+                throw ('профиль "{0}": неизвестный WindowMode "{1}"' -f `
+                        $profile.Id, $profile.WindowMode)
+            }
+            $merged[$profile.Id] = $profile
+            $loaded++
+        }
+        $appProfiles = @($merged.Values)
+        $profileNote = 'profiles: built-in + {0} from {1}' -f $loaded, $ProfilesPath
+    } catch {
+        $profileNote = 'profiles: built-in (не удалось прочитать {0}: {1})' -f `
+            $ProfilesPath, $_.Exception.Message
+    }
+}
 
 $activeProfiles = @($appProfiles | Where-Object { $Apps -contains $_.Id })
 
@@ -344,6 +387,31 @@ function Get-AppSnapshot {
     return $snap
 }
 
+# Почему видимое окно считается (или не считается) встречей. Нужно для
+# диагностики через -Once: видно, какой шаблон сработал, а какой окно отбросил.
+function Get-WindowVerdict {
+    param($Profile, [string] $Title, [string] $Class)
+    foreach ($pattern in $Profile.ServicePatterns) {
+        if ($Title -match $pattern) { return 'service' }
+    }
+    if ($Profile.WaitingPattern -and $Title -match $Profile.WaitingPattern) {
+        return 'waiting'
+    }
+    switch ($Profile.WindowMode) {
+        'anyOtherVisible' { return 'meeting' }
+        'patterns' {
+            foreach ($pattern in $Profile.TitlePatterns) {
+                if ($Title -match $pattern) { return 'meeting' }
+            }
+            foreach ($pattern in $Profile.ClassPatterns) {
+                if ($Class -match $pattern) { return 'meeting' }
+            }
+            return 'ignored'
+        }
+        default { return 'ignored' }
+    }
+}
+
 # 'none' | 'waiting' | 'meeting'
 # Встреча определяется только по окну (D-58). Аудиосессии остаются в
 # диагностическом хвосте, но самостоятельным признаком не являются: в Толке
@@ -393,6 +461,7 @@ function Format-Details {
 }
 
 if ($Once) {
+    Write-Output $profileNote
     $webcams = Get-DeviceOwners 'webcam'
     $microphones = Get-DeviceOwners 'microphone'
     foreach ($profile in $activeProfiles) {
@@ -401,7 +470,10 @@ if ($Once) {
                 $profile.Name, $snap.Running, (Get-RawState $snap), $snap.ActiveAudio,
                 (Test-DeviceInUse $webcams $profile.ExeName), (Test-DeviceInUse $microphones $profile.ExeName),
                 $snap.Windows.Count)
-        foreach ($w in $snap.Windows) { Write-Output ('    [{0}] {1}' -f $w.Class, $w.Title) }
+        foreach ($w in $snap.Windows) {
+            $verdict = Get-WindowVerdict $profile $w.Title $w.Class
+            Write-Output ('    [{0}] {1}  -> {2}' -f $w.Class, $w.Title, $verdict)
+        }
     }
     return
 }
@@ -424,8 +496,9 @@ if (Test-Path -LiteralPath $LogPath) {
     } catch { }
 }
 
-Write-Event ('watcher started: apps {0}; interval {1}s; log {2}; state {3}' -f `
-        (($activeProfiles | ForEach-Object { $_.Name }) -join ', '), $IntervalSeconds, $LogPath, $StatePath)
+Write-Event ('watcher started: apps {0}; interval {1}s; log {2}; state {3}; {4}' -f `
+        (($activeProfiles | ForEach-Object { $_.Name }) -join ', '), $IntervalSeconds, $LogPath, $StatePath,
+        $profileNote)
 
 $runtime = @{}
 $deviceKinds = @(
