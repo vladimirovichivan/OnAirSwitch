@@ -1,7 +1,7 @@
 ﻿# Сборка портативной версии OnAir Lamp.
 #
 #   powershell -ExecutionPolicy Bypass -File packaging\build.ps1
-#   powershell ... -Version 1.1.1
+#   powershell ... -Version 1.1.2
 #
 # Скачивает официальный embeddable Python, ставит зависимости в vendor\,
 # проверяет импорты под эмбеддированным интерпретатором и складывает готовую
@@ -9,7 +9,7 @@
 # и есть packaging\OnAirLamp.iss. Компиляции кода нет: копируются .py/.ps1.
 
 param(
-    [string]$Version = '1.1.1',
+    [string]$Version = '1.1.2',
     [string]$PythonVersion = '3.12.10',
     [switch]$SkipInstaller
 )

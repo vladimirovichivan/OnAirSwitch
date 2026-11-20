@@ -3,16 +3,18 @@
 **English** | [Русский](README.ru.md)
 
 An "On air" indicator for your desk: a Tuya smart plug switches a lamp on while a
-video meeting is running in Microsoft Teams (Talk), Telemost or Zoom, and turns
-it off when the meeting ends. Everything runs locally — no cloud account is
-needed in everyday use, and no administrator rights are required.
+video meeting is running in Microsoft Teams (Talk), Telemost or Zoom — or while
+you are in a voice call in Discord — and turns it off when the call ends.
+Everything runs locally — no cloud account is needed in everyday use, and no
+administrator rights are required.
 
 [**Download the latest release**](https://github.com/vladimirovichivan/OnAirSwitch/releases/latest)
 
 ## How it works
 
-- A PowerShell watcher detects meeting windows of supported apps and writes
-  events to a local log. It never controls the device itself.
+- A PowerShell watcher detects meeting windows of supported apps (and, for
+  Discord, an active microphone capture) and writes events to a local log. It
+  never controls the device itself.
 - A separate executor reads the desired state, talks to the plug over the local
   Tuya protocol and verifies every command by reading the state back.
 - A tray icon shows the current meeting and its duration, the lamp state, the
@@ -26,8 +28,10 @@ rediscovered over UDP if the router assigns a new one.
 
 ## Features
 
-- Meeting detection by visible window titles (Teams/Talk, Telemost, Zoom),
-  with a 3-sample threshold to avoid flicker.
+- Meeting detection by visible window titles (Teams/Talk, Telemost, Zoom) and by
+  microphone capture for Discord (its window title does not change during a
+  call, and the app may be minimized to the tray), with a 3-sample threshold to
+  avoid flicker.
 - Local Tuya protocol; keys are stored only in a local file, never uploaded.
 - Manual modes: on/off until a deadline, pause automation, resume.
 - English and Russian UI; defaults to the Windows display language.
@@ -42,6 +46,8 @@ rediscovered over UDP if the router assigns a new one.
 - Windows 10 or Windows 11 (64-bit).
 - A Tuya-compatible smart plug added to the Smart Life app.
 - The PC and the plug on the same local network (not a guest Wi-Fi).
+- Discord support needs the Discord desktop app for Windows (the browser version
+  is not detected).
 - For building from source: Python 3.12 and, optionally, Inno Setup 7 or 6.
 
 ## Install

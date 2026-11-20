@@ -1,6 +1,6 @@
 ﻿<#
 .SYNOPSIS
-  Наблюдатель за встречами: Контур.Толк, Zoom, Яндекс.Телемост.
+  Наблюдатель за встречами: Контур.Толк, Zoom, Яндекс.Телемост, Discord.
   Пишет в лог события "встреча началась / закончилась", "камера включена / выключена"
   и "микрофон включён / выключен".
 
@@ -11,9 +11,12 @@
     * журнал доступа к камере и микрофону (CapabilityAccessManager ConsentStore).
 
   Состояния по каждому приложению: нет встречи / окно входа / встреча.
-  Встреча определяется только по окну (D-58): аудиосессия приложения может
+  Встреча определяется по окну (D-58): аудиосессия приложения может
   оставаться активной вне встречи (например, после окна настроек Толка),
-  поэтому самостоятельным признаком не является. События фиксируются
+  поэтому самостоятельным признаком не является. Исключение — Discord (D-69):
+  в нём звонок не отражается в заголовке окна, а в трее окон нет вообще,
+  поэтому признак звонка — захват микрофона процессом Discord в журнале
+  согласий Windows (тот же источник, что и для камеры). События фиксируются
   с дебаунсом, чтобы не реагировать на мигание окон и переподключения.
 
   Апробация: в строки событий пишутся заголовки видимых окон приложения
@@ -45,7 +48,7 @@ param(
     [int] $CameraPolls = 2,
     [string] $LogPath = '',
     [string] $StatePath = '',
-    [string[]] $Apps = @('talk', 'zoom', 'telemost'),
+    [string[]] $Apps = @('talk', 'zoom', 'telemost', 'discord'),
     [string] $ProfilesPath = '',
     [switch] $Once,
     [switch] $Quiet,
@@ -71,6 +74,8 @@ $StatePath = [IO.Path]::GetFullPath($StatePath)
 # WindowMode:
 #   anyOtherVisible - встреча = любое видимое окно, кроме служебных (ServicePatterns);
 #   patterns        - встреча = видимое окно с заголовком/классом из TitlePatterns/ClassPatterns;
+#   micOnly         - звонок = процесс захватывает микрофон (Discord: окно не меняется,
+#                     в трее окон нет); окна только для диагностики;
 #   audioOnly       - окна пока не размечены, признак только по активной аудиосессии.
 $appProfiles = @(
     @{
@@ -117,6 +122,20 @@ $appProfiles = @(
         WaitingPattern = ''
         TitlePatterns  = @()
         ClassPatterns  = @()
+    },
+    @{
+        Id             = 'discord'
+        Name           = 'Discord'
+        Processes      = @('Discord')
+        ExeName        = 'Discord.exe'
+        # Discord не пишет голосовой канал в заголовок окна, а при сворачивании
+        # в трей видимых окон нет совсем. Зато во время звонка Discord держит
+        # микрофон открытым, и это видно в ConsentStore Windows (D-69).
+        WindowMode     = 'micOnly'
+        ServicePatterns = @()
+        WaitingPattern = ''
+        TitlePatterns  = @()
+        ClassPatterns  = @()
     }
 )
 
@@ -147,7 +166,7 @@ if (Test-Path -LiteralPath $ProfilesPath) {
                     -not $profile.Processes -or -not $profile.ExeName) {
                 throw 'профиль без id/name/processes/exeName'
             }
-            if ($profile.WindowMode -notin @('anyOtherVisible', 'patterns', 'audioOnly')) {
+            if ($profile.WindowMode -notin @('anyOtherVisible', 'patterns', 'audioOnly', 'micOnly')) {
                 throw ('профиль "{0}": неизвестный WindowMode "{1}"' -f `
                         $profile.Id, $profile.WindowMode)
             }
@@ -325,15 +344,18 @@ function Get-DeviceOwners {
 
 function Test-DeviceInUse {
     param($Owners, [string] $ExeName)
+    # У приложения может быть несколько путей в журнале (например, Discord после
+    # обновления живёт в новой папке app-1.0.*). Достаточно, чтобы микрофон или
+    # камера были заняты хотя бы одним из них.
     foreach ($path in $Owners.Keys) {
-        if ([IO.Path]::GetFileName($path) -ieq $ExeName) { return [bool] $Owners[$path] }
+        if ([IO.Path]::GetFileName($path) -ieq $ExeName -and $Owners[$path]) { return $true }
     }
     return $false
 }
 
 # --- Снимок состояния приложения ---
 function Get-AppSnapshot {
-    param($Profile)
+    param($Profile, $MicOwners)
     $processes = @(Get-Process -Name $Profile.Processes -ErrorAction SilentlyContinue)
     $snap = [pscustomobject]@{
         Profile         = $Profile
@@ -341,9 +363,12 @@ function Get-AppSnapshot {
         ConferenceTitle = $null
         IsWaiting       = $false
         ActiveAudio     = 0
+        MicInUse        = $false
         Windows         = @()
     }
     if (-not $snap.Running) { return $snap }
+
+    if ($MicOwners) { $snap.MicInUse = Test-DeviceInUse $MicOwners $Profile.ExeName }
 
     $pids = @($processes | ForEach-Object { [uint32] $_.Id })
     $windows = @()
@@ -408,6 +433,7 @@ function Get-WindowVerdict {
             }
             return 'ignored'
         }
+        'micOnly' { return 'ignored (mic-based profile)' }
         default { return 'ignored' }
     }
 }
@@ -416,10 +442,15 @@ function Get-WindowVerdict {
 # Встреча определяется только по окну (D-58). Аудиосессии остаются в
 # диагностическом хвосте, но самостоятельным признаком не являются: в Толке
 # после окна настроек сессии ktalk.exe остаются Active без встречи и без окон,
-# и такая «встреча» не завершается.
+# и такая «встреча» не завершается. Исключение — micOnly (Discord, D-69):
+# там окно не меняется, а захват микрофона — единственный надёжный признак.
 function Get-RawState {
     param($Snapshot)
     if (-not $Snapshot.Running) { return 'none' }
+    if ($Snapshot.Profile.WindowMode -eq 'micOnly') {
+        if ($Snapshot.MicInUse) { return 'meeting' }
+        return 'none'
+    }
     if ($Snapshot.ConferenceTitle) {
         if ($Snapshot.IsWaiting) { return 'waiting' }
         return 'meeting'
@@ -433,6 +464,9 @@ function Format-Details {
         ('window: ' + $(if ($Snapshot.ConferenceTitle) { 'yes' } else { 'no' })),
         ('audio sessions: ' + $Snapshot.ActiveAudio)
     )
+    if ($Snapshot.Profile.WindowMode -eq 'micOnly') {
+        $parts += ('microphone: ' + $(if ($Snapshot.MicInUse) { 'in use' } else { 'idle' }))
+    }
     if (-not $NoTitles) {
         if ($Snapshot.ConferenceTitle) {
             $parts += ('title: "' + $Snapshot.ConferenceTitle + '"')
@@ -465,7 +499,7 @@ if ($Once) {
     $webcams = Get-DeviceOwners 'webcam'
     $microphones = Get-DeviceOwners 'microphone'
     foreach ($profile in $activeProfiles) {
-        $snap = Get-AppSnapshot $profile
+        $snap = Get-AppSnapshot $profile $microphones
         Write-Output ('[{0}] running={1} state={2} audio={3} camera={4} mic={5} windows={6}' -f `
                 $profile.Name, $snap.Running, (Get-RawState $snap), $snap.ActiveAudio,
                 (Test-DeviceInUse $webcams $profile.ExeName), (Test-DeviceInUse $microphones $profile.ExeName),
@@ -532,7 +566,7 @@ while ($true) {
 
     foreach ($profile in $activeProfiles) {
         $rt = $runtime[$profile.Id]
-        $snap = Get-AppSnapshot $profile
+        $snap = Get-AppSnapshot $profile $owners.microphone
         $raw = Get-RawState $snap
 
         # --- запуск/останов приложения ---
@@ -593,7 +627,7 @@ while ($true) {
                             # не пишем. Он остаётся, только если состояние разошлось с ожидаемым:
                             # окно ещё на месте или медиапоток не закрыт.
                             $tail = ''
-                            if ($snap.ConferenceTitle -or $snap.ActiveAudio -gt 0) { $tail = '; ' + $details }
+                            if ($snap.ConferenceTitle -or $snap.ActiveAudio -gt 0 -or $snap.MicInUse) { $tail = '; ' + $details }
                             Write-Event ('[{0}] meeting ENDED (duration {1:hh\:mm\:ss}{2})' -f `
                                     $profile.Name, $duration, $tail)
                         }
@@ -607,6 +641,11 @@ while ($true) {
         if ($rt.State -eq 'none') { $context = ' (outside meeting)' }
 
         foreach ($d in $deviceKinds) {
+            # В micOnly-профиле (Discord) микрофон сам является признаком звонка,
+            # поэтому отдельное событие «микрофон включён» только дублировало бы
+            # «встреча началась» и путало меткой «outside meeting» из-за дебаунса.
+            if ($profile.WindowMode -eq 'micOnly' -and $d.Kind -eq 'microphone') { continue }
+
             $dev = $rt.Devices[$d.Kind]
             $inUseNow = (Test-DeviceInUse $owners[$d.Kind] $profile.ExeName) -and $snap.Running
 
