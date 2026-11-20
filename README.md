@@ -3,8 +3,8 @@
 **English** | [Русский](README.ru.md)
 
 An "On air" indicator for your desk: a Tuya smart plug switches a lamp on while a
-video meeting is running in Microsoft Teams (Talk), Telemost or Zoom — or while
-you are in a voice call in Discord — and turns it off when the call ends.
+video meeting is running in Kontur Talk, Yandex Telemost or Zoom — or while you
+are in a voice call in Discord — and turns it off when the call ends.
 Everything runs locally — no cloud account is needed in everyday use, and no
 administrator rights are required.
 
@@ -28,9 +28,9 @@ rediscovered over UDP if the router assigns a new one.
 
 ## Features
 
-- Meeting detection by visible window titles (Teams/Talk, Telemost, Zoom) and by
-  microphone capture for Discord (its window title does not change during a
-  call, and the app may be minimized to the tray), with a 3-sample threshold to
+- Meeting detection by visible window titles (Kontur Talk, Yandex Telemost, Zoom)
+  and by microphone capture for Discord (its window title does not change during
+  a call, and the app may be minimized to the tray), with a 3-sample threshold to
   avoid flicker.
 - Local Tuya protocol; keys are stored only in a local file, never uploaded.
 - Manual modes: on/off until a deadline, pause automation, resume.
