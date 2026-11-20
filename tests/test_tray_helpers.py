@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import sys
+import tempfile
 import unittest
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -14,11 +15,23 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / 'app' / 'scripts' / 'meetings'))
 
+import i18n  # noqa: E402
 import plug_control as pc  # noqa: E402
 import tray_plug as tray  # noqa: E402
 
 NOW = datetime(2026, 11, 20, 12, 0, 0)
 STAMP = '%Y-%m-%d %H:%M:%S'
+_SETTINGS_DIR = tempfile.TemporaryDirectory()
+_SETTINGS_PATH = Path(_SETTINGS_DIR.name) / 'settings.json'
+
+
+def setUpModule():
+    i18n.set_language('ru', path=_SETTINGS_PATH)
+
+
+def tearDownModule():
+    i18n.reset_cache()
+    _SETTINGS_DIR.cleanup()
 
 
 class HumanDurationTests(unittest.TestCase):
@@ -93,6 +106,27 @@ class ControlTests(unittest.TestCase):
         self.assertEqual(mode, pc.MODE_AUTO)
         self.assertIsNone(until)
         self.assertTrue(expired)
+
+
+class LanguageTests(unittest.TestCase):
+    def tearDown(self):
+        i18n.set_language('ru', path=_SETTINGS_PATH)
+
+    def test_english_tray_and_control_strings(self):
+        i18n.set_language('en', path=_SETTINGS_PATH)
+        self.assertEqual(tray.human_duration(60), '1 min')
+        self.assertEqual(tray.human_duration(3660), '1 h 01 min')
+        self.assertEqual(tray.remaining_suffix(NOW + timedelta(minutes=37), NOW),
+                         ' · 37 min left')
+        self.assertEqual(pc.describe(pc.MODE_OFF, NOW + timedelta(minutes=30)),
+                         'turned off manually until 12:30')
+        self.assertEqual(pc.describe(pc.MODE_AUTO, None),
+                         'automation by meetings')
+
+    def test_unknown_language_falls_back_to_english(self):
+        i18n.set_language('en', path=_SETTINGS_PATH)
+        self.assertEqual(i18n.t('menu_exit'), 'Exit')
+        self.assertEqual(i18n.translate('menu_exit', 'xx'), 'Выход')
 
 
 if __name__ == '__main__':

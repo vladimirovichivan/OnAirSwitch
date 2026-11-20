@@ -129,7 +129,7 @@ $buildJson = Join-Path $stage 'app\build.json'
 Write-Host '4/6 проверка импортов в готовой раскладке'
 $stagePython = Join-Path $stage 'python\python.exe'
 $env:PYTHONDONTWRITEBYTECODE = '1'
-& $stagePython -c "import tinytuya, pystray, PIL, cryptography, plug_control, tuya_discovery; print('imports ok')"
+& $stagePython -c "import tinytuya, pystray, PIL, cryptography, plug_control, tuya_discovery, i18n, updater; print('imports ok')"
 if ($LASTEXITCODE -ne 0) { throw 'импорты в портативной раскладке не проходят' }
 Remove-Item Env:\PYTHONDONTWRITEBYTECODE -ErrorAction SilentlyContinue
 Remove-Pycache $stage

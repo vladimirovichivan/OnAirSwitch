@@ -20,6 +20,7 @@ import os
 import subprocess
 import sys
 import threading
+import time
 import traceback
 from datetime import datetime
 from pathlib import Path
@@ -27,7 +28,9 @@ from pathlib import Path
 import pystray
 from PIL import Image, ImageChops, ImageDraw, ImageFilter
 
+import i18n
 import plug_control as pc
+import updater
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 ICONS_DIR = SCRIPT_DIR / 'icons'
@@ -47,17 +50,23 @@ STATUS_STALE_SECONDS = 30
 MEETINGS_STALE_SECONDS = 45
 
 DEADLINE_ITEMS = (
-    ('на 1 час', '1h'),
-    ('на 2 часа', '2h'),
-    ('до конца дня', 'eod'),
-    ('до ручного возврата', 'manual'),
+    ('deadline_1h', '1h'),
+    ('deadline_2h', '2h'),
+    ('deadline_eod', 'eod'),
+    ('deadline_manual', 'manual'),
 )
+
+AUTO_CHECK_SECONDS = 20
+AUTO_CHECK_INTERVAL = 24 * 60 * 60
+UPDATE_CONFIRM_FLAGS = 0x00000004 | 0x00000020 | 0x00010000  # YESNO|QUESTION|SETFOREGROUND
 
 _state: dict = {'control': None, 'status': None, 'meetings': None,
                 'mode': pc.MODE_AUTO, 'until': None, 'alive': False,
                 'meetings_alive': False, 'meeting': False,
                 'meeting_names': [], 'meeting_seconds': None,
-                'badge': False, 'kind': None, 'theme': None}
+                'badge': False, 'kind': None, 'theme': None,
+                'update': {'status': 'idle', 'version': '', 'error': ''}}
+_update_check: updater.UpdateCheck | None = None
 _icon: pystray.Icon | None = None
 
 
@@ -300,17 +309,18 @@ def status_age(status: dict | None) -> float | None:
     return (datetime.now() - stamp).total_seconds()
 
 
-def human_duration(seconds: float) -> str:
+def human_duration(seconds: float, language: str | None = None) -> str:
     """Длительность для меню: «меньше минуты», «42 мин», «1 ч 05 мин»."""
     minutes = int(max(0.0, seconds)) // 60
     if minutes < 1:
-        return 'меньше минуты'
+        return i18n.translate('less_than_minute', language)
     hours, minutes = divmod(minutes, 60)
     if hours and minutes:
-        return f'{hours} ч {minutes:02d} мин'
+        return i18n.translate('duration_hm', language, hours=hours,
+                              minutes=minutes)
     if hours:
-        return f'{hours} ч'
-    return f'{minutes} мин'
+        return i18n.translate('duration_h', language, hours=hours)
+    return i18n.translate('duration_min', language, minutes=minutes)
 
 
 def remaining_suffix(until: datetime | None,
@@ -320,7 +330,7 @@ def remaining_suffix(until: datetime | None,
     seconds = (until - (now or datetime.now())).total_seconds()
     if seconds <= 0:
         return ''
-    return ' · осталось ' + human_duration(seconds)
+    return i18n.t('remaining', duration=human_duration(seconds))
 
 
 def read_meetings() -> dict | None:
@@ -380,30 +390,36 @@ def meeting_text(item=None) -> str:
     names = _state.get('meeting_names') or []
     if not names:
         return ''
-    text = 'Встреча: ' + ', '.join(names)
+    joined = ', '.join(names)
     seconds = _state.get('meeting_seconds')
     if seconds is not None:
-        text += ' · ' + human_duration(seconds)
-    return text
+        return i18n.t('meeting_with_duration', names=joined,
+                      duration=human_duration(seconds))
+    return i18n.t('meeting', names=joined)
 
 
 def lamp_text(item=None) -> str:
     status = _state['status']
     if is_unconfigured():
-        return 'Лампа: розетка не настроена — «Настроить розетку…»'
+        return i18n.t('lamp_not_configured')
     age = status_age(status)
     if status is None:
-        return 'Лампа: нет данных (исполнитель не запущен)'
+        return i18n.t('lamp_no_data')
     if age is None or age > STATUS_STALE_SECONDS:
-        return f'Лампа: ? — исполнитель не отвечает (статус от {status.get("updated") or "?"})'
+        return i18n.t('lamp_stale',
+                      stamp=status.get('updated') or '?')
     actual = status.get('actual')
-    word = {True: 'включена', False: 'выключена'}.get(actual, 'состояние неизвестно')
+    word = {True: i18n.t('lamp_on'),
+            False: i18n.t('lamp_off')}.get(actual, i18n.t('lamp_unknown'))
     checked = (status.get('checked') or '')[11:19]
-    return f'Лампа: {word}' + (f' · проверено {checked}' if checked else '')
+    if checked:
+        return i18n.t('lamp_checked', state=word, checked=checked)
+    return i18n.t('lamp_state', state=word)
 
 
 def mode_text(item=None) -> str:
-    return 'Режим: ' + pc.describe(_state['mode'], _state['until']) + \
+    return i18n.t('mode', description=pc.describe(
+        _state['mode'], _state['until'])) + \
         remaining_suffix(_state['until'])
 
 
@@ -414,18 +430,18 @@ def reason_text(item=None) -> str:
     until = _state.get('until')
     actual = status.get('actual') if status else None
     if not _state.get('alive'):
-        return 'Исполнитель не отвечает — статус и команды могут не работать'
+        return i18n.t('reason_executor_down')
     if not _state.get('meetings_alive'):
-        return 'Нет данных о встречах — наблюдатель не отвечает'
+        return i18n.t('reason_watcher_down')
     if _state.get('meeting') and mode == pc.MODE_AUTO and actual is False:
-        return 'Встреча идёт, а лампа выключена — откройте plug.log'
+        return i18n.t('reason_meeting_lamp_off')
     if _state.get('meeting') and mode == pc.MODE_OFF:
-        return 'Встреча идёт, но лампа выключена вручную' + \
+        return i18n.t('reason_meeting_manual_off') + \
             remaining_suffix(until)
     if not _state.get('meeting') and mode == pc.MODE_ON:
-        return 'Встреч нет, лампа включена вручную' + remaining_suffix(until)
+        return i18n.t('reason_no_meeting_manual_on') + remaining_suffix(until)
     if mode == pc.MODE_PAUSED:
-        return 'Автоматика снята — лампа не меняется' + remaining_suffix(until)
+        return i18n.t('reason_paused') + remaining_suffix(until)
     return ''
 
 
@@ -434,7 +450,7 @@ def error_text() -> str | None:
     error = status.get('error')
     if not error:
         return None
-    return f'Ошибка устройства: {error}'[:120]
+    return i18n.t('error_device', error=error)[:120]
 
 
 def refresh() -> None:
@@ -473,15 +489,21 @@ def refresh() -> None:
     if changed:
         _icon.icon = make_image(kind, theme, badge)
     if is_unconfigured():
-        title_word = 'розетка не настроена'
+        title_word = i18n.t('state_not_configured')
     else:
-        title_word = {'on': 'включена', 'off': 'выключена',
-                      'paused': 'автоматика снята'}.get(kind, 'нет данных')
-    title = 'OnAir Lamp: ' + title_word + ' · ' + pc.describe(mode, until)
+        title_word = {'on': i18n.t('state_on'),
+                      'off': i18n.t('state_off'),
+                      'paused': i18n.t('state_paused')}.get(
+                          kind, i18n.t('state_unknown'))
+    title = i18n.t('title', state=title_word,
+                   mode=pc.describe(mode, until))
     if meeting:
-        title += ' · встреча ' + ', '.join(names)
         if seconds is not None:
-            title += ' ' + human_duration(seconds)
+            title += i18n.t('title_meeting_duration',
+                            names=', '.join(names),
+                            duration=human_duration(seconds))
+        else:
+            title += i18n.t('title_meeting', names=', '.join(names))
     _icon.title = title[:120]
     _icon.update_menu()
 
@@ -492,7 +514,7 @@ def act(mode: str, spec: str = pc.DEFAULT_DEADLINE) -> None:
     except (OSError, ValueError) as exc:
         log(f'action failed: {mode}/{spec}: {exc}')
         if _icon is not None:
-            _icon.notify(f'Не удалось записать режим: {exc}', 'OnAir Lamp')
+            _icon.notify(i18n.t('act_failed', error=exc), 'OnAir Lamp')
     refresh()
 
 
@@ -503,7 +525,7 @@ def open_log() -> None:
     except OSError as exc:
         log(f'cannot open {PLUG_LOG}: {exc}')
         if _icon is not None:
-            _icon.notify(f'Не удалось открыть журнал: {exc}', 'OnAir Lamp')
+            _icon.notify(i18n.t('log_open_failed', error=exc), 'OnAir Lamp')
 
 
 def open_events_log() -> None:
@@ -512,7 +534,7 @@ def open_events_log() -> None:
     except OSError as exc:
         log(f'cannot open {EVENTS_LOG}: {exc}')
         if _icon is not None:
-            _icon.notify(f'Не удалось открыть журнал встреч: {exc}', 'OnAir Lamp')
+            _icon.notify(i18n.t('events_open_failed', error=exc), 'OnAir Lamp')
 
 
 def _console_python() -> Path | None:
@@ -537,8 +559,7 @@ def open_verify() -> None:
     script = SCRIPT_DIR / 'tuya_setup.py'
     if python is None or not script.exists():
         if _icon is not None:
-            _icon.notify('Не найден verify.cmd — переустановите OnAir Lamp.',
-                         'OnAir Lamp')
+            _icon.notify(i18n.t('verify_missing'), 'OnAir Lamp')
         return
     comspec = os.environ.get('ComSpec', 'cmd.exe')
     try:
@@ -549,15 +570,14 @@ def open_verify() -> None:
     except OSError as exc:
         log(f'cannot start verify: {exc}')
         if _icon is not None:
-            _icon.notify(f'Не удалось проверить розетку: {exc}', 'OnAir Lamp')
+            _icon.notify(i18n.t('verify_failed', error=exc), 'OnAir Lamp')
 
 
 def make_report() -> None:
     """Собирает zip для поддержки скрыто и сообщает имя файла."""
     if not REPORT_SCRIPT.exists():
         if _icon is not None:
-            _icon.notify('Не найден report_support.py — переустановите OnAir Lamp.',
-                         'OnAir Lamp')
+            _icon.notify(i18n.t('report_missing'), 'OnAir Lamp')
         return
 
     def worker() -> None:
@@ -571,21 +591,20 @@ def make_report() -> None:
         except (OSError, subprocess.SubprocessError) as exc:
             log(f'report failed: {type(exc).__name__}: {exc}')
             if _icon is not None:
-                _icon.notify(f'Не удалось собрать отчёт: {exc}', 'OnAir Lamp')
+                _icon.notify(i18n.t('report_failed', error=exc), 'OnAir Lamp')
             return
         output = (proc.stdout or '') + (proc.stderr or '')
         archive = ''
         for line in output.splitlines():
-            if line.startswith('архив:'):
+            if line.startswith(('архив:', 'archive:')):
                 archive = line.split(':', 1)[1].strip()
         log(f'report: rc={proc.returncode} archive={archive or "?"}')
         if proc.returncode == 0 and archive:
             if _icon is not None:
-                _icon.notify(f'Отчёт на рабочем столе: {Path(archive).name}',
+                _icon.notify(i18n.t('report_saved', name=Path(archive).name),
                              'OnAir Lamp')
         elif _icon is not None:
-            _icon.notify('Не удалось собрать отчёт — подробности в tray.log.',
-                         'OnAir Lamp')
+            _icon.notify(i18n.t('report_failed_log'), 'OnAir Lamp')
 
     threading.Thread(target=worker, daemon=True).start()
 
@@ -596,7 +615,7 @@ def open_setup() -> None:
     path = next((item for item in candidates if item.exists()), None)
     if path is None:
         if _icon is not None:
-            _icon.notify('Не найден setup.cmd — переустановите OnAir Lamp.', 'OnAir Lamp')
+            _icon.notify(i18n.t('setup_missing'), 'OnAir Lamp')
         return
     try:
         import os
@@ -604,7 +623,7 @@ def open_setup() -> None:
     except OSError as exc:
         log(f'cannot open {path}: {exc}')
         if _icon is not None:
-            _icon.notify(f'Не удалось открыть настройку: {exc}', 'OnAir Lamp')
+            _icon.notify(i18n.t('setup_failed', error=exc), 'OnAir Lamp')
 
 
 def first_run_prompt() -> None:
@@ -616,12 +635,8 @@ def first_run_prompt() -> None:
     """
     answer = ctypes.windll.user32.MessageBoxW(
         None,
-        'Розетка ещё не настроена, поэтому лампа пока не будет реагировать '
-        'на встречи.\n\n'
-        'Открыть мастер настройки? Для него нужны Access ID и Access Secret '
-        'из Tuya IoT Platform (шаги 3.1–3.4 инструкции).\n\n'
-        'Настроить можно и позже: значок лампы в трее → «Настроить розетку…».',
-        'OnAir Lamp',
+        i18n.t('first_run_text'),
+        i18n.t('first_run_title'),
         0x00000004 | 0x00000020 | 0x00010000,  # MB_YESNO | MB_ICONQUESTION | MB_SETFOREGROUND
     )
     log(f'first run: setup prompt answered {answer}')
@@ -659,19 +674,202 @@ def quit_app() -> None:
         _icon.stop()
 
 
-def _deadline_item(text: str, mode: str, spec: str) -> pystray.MenuItem:
+def _deadline_item(key: str, mode: str, spec: str) -> pystray.MenuItem:
     """Один пункт подменю: обработчик с сигнатурой (icon, item), как ждёт pystray."""
     def handler(icon, item):
         act(mode, spec)
-    return pystray.MenuItem(text, handler)
+    return pystray.MenuItem(i18n.t(key), handler)
 
 
 def _deadline_submenu(mode: str) -> pystray.Menu:
     """Подменю «на 1 час / на 2 часа / до конца дня / до ручного возврата»."""
-    return pystray.Menu(*(_deadline_item(text, mode, spec) for text, spec in DEADLINE_ITEMS))
+    return pystray.Menu(*(_deadline_item(key, mode, spec)
+                          for key, spec in DEADLINE_ITEMS))
+
+
+def change_language(value: str) -> None:
+    """Сменить язык интерфейса и сразу перестроить меню и заголовок."""
+    resolved = i18n.set_language(value)
+    log(f'language changed: {value} -> {resolved}')
+    if _icon is not None:
+        _icon.menu = build_menu()
+        _icon.update_menu()
+        refresh()
+
+
+def _language_item(value: str, key: str) -> pystray.MenuItem:
+    return pystray.MenuItem(
+        i18n.t(key), lambda icon, item: change_language(value),
+        checked=lambda item: i18n.language_setting() == value, radio=True)
+
+
+def _language_submenu() -> pystray.Menu:
+    return pystray.Menu(
+        _language_item(i18n.LANGUAGE_AUTO, 'lang_auto'),
+        _language_item(i18n.LANGUAGE_RU, 'lang_ru'),
+        _language_item(i18n.LANGUAGE_EN, 'lang_en'),
+    )
+
+
+def _notify(message: str) -> None:
+    if _icon is not None:
+        try:
+            _icon.notify(message, 'OnAir Lamp')
+        except Exception as exc:  # уведомление не должно ронять трей
+            log(f'notify failed: {type(exc).__name__}: {exc}')
+
+
+def _version_label() -> str:
+    version = updater.current_version()
+    return 'dev' if version == '0.0.0' else version
+
+
+def update_text(item=None) -> str:
+    info = _state.get('update') or {}
+    status = info.get('status')
+    version = info.get('version') or ''
+    if status == 'checking':
+        return i18n.t('menu_update_checking')
+    if status == 'downloading':
+        return i18n.t('menu_update_downloading', version=version)
+    if status == 'available':
+        return i18n.t('menu_update_install', version=version)
+    return i18n.t('menu_update_check')
+
+
+def update_enabled(item=None) -> bool:
+    return (_state.get('update') or {}).get('status') not in (
+        'checking', 'downloading')
+
+
+def _remember_check() -> None:
+    try:
+        settings = i18n.read_settings()
+        settings['update_last_check'] = pc.now_stamp()
+        i18n.write_settings(settings)
+    except OSError as exc:
+        log(f'cannot save update check time: {exc}')
+
+
+def start_check(manual: bool = True) -> None:
+    """Проверить выпуски в фоне; ручная проверка сообщает результат всегда."""
+    info = _state.get('update') or {}
+    if info.get('status') == 'checking':
+        return
+    _state['update'] = dict(info, status='checking', error='')
+    if _icon is not None:
+        _icon.update_menu()
+
+    def worker() -> None:
+        global _update_check
+        check = updater.check_for_update()
+        _update_check = check
+        log(f'update check: current {check.current}; latest {check.version or "?"}; '
+            f'available {check.available}; error {check.error or "none"}')
+        if check.error:
+            _state['update'] = {'status': 'idle', 'version': check.version,
+                                'error': check.error}
+            if manual:
+                _notify(i18n.t('update_check_failed', error=check.error))
+        elif check.available:
+            _state['update'] = {'status': 'available',
+                                'version': check.version, 'error': ''}
+            _notify(i18n.t('update_available', version=check.version))
+            _remember_check()
+        else:
+            _state['update'] = {'status': 'idle',
+                                'version': check.version, 'error': ''}
+            if manual:
+                _notify(i18n.t('update_up_to_date', version=check.current))
+            _remember_check()
+        if _icon is not None:
+            _icon.update_menu()
+
+    threading.Thread(target=worker, daemon=True).start()
+
+
+def start_install() -> None:
+    """Спросить подтверждение, скачать и запустить установщик обновления."""
+    info = _state.get('update') or {}
+    check = _update_check
+    if check is None or not check.available or info.get('status') != 'available':
+        start_check(manual=True)
+        return
+    if not updater.is_installed():
+        _notify(i18n.t('update_dev_only'))
+        return
+    answer = ctypes.windll.user32.MessageBoxW(
+        None, i18n.t('update_confirm', version=check.version),
+        i18n.t('update_confirm_title'), UPDATE_CONFIRM_FLAGS)
+    log(f'update install: user answered {answer}')
+    if answer != 6:  # IDYES
+        return
+
+    version = check.version
+    _state['update'] = dict(info, status='downloading', version=version)
+    if _icon is not None:
+        _icon.update_menu()
+
+    def worker() -> None:
+        try:
+            installer = updater.download_update(check)
+        except updater.UpdateError as exc:
+            log(f'update download failed: {exc}')
+            _state['update'] = dict(info, status='available', version=version)
+            message = (i18n.t('update_bad_checksum')
+                       if 'checksum' in str(exc).lower()
+                       else i18n.t('update_download_failed', error=exc))
+            _notify(message)
+            if _icon is not None:
+                _icon.update_menu()
+            return
+        log(f'update downloaded: {installer}')
+        try:
+            updater.launch_installer(installer)
+        except updater.UpdateError as exc:
+            log(f'update launch failed: {exc}')
+            _state['update'] = dict(info, status='available', version=version)
+            _notify(i18n.t('update_install_failed', error=exc))
+            if _icon is not None:
+                _icon.update_menu()
+            return
+        _notify(i18n.t('update_launching', version=version))
+        time.sleep(1.5)
+        stop_all()
+        if _icon is not None:
+            _icon.stop()
+
+    threading.Thread(target=worker, daemon=True).start()
+
+
+def update_action(icon, item) -> None:
+    if (_state.get('update') or {}).get('status') == 'available':
+        start_install()
+    else:
+        start_check(manual=True)
+
+
+def _auto_check_due() -> bool:
+    stamp = pc.parse_stamp(i18n.read_settings().get('update_last_check'))
+    if stamp is None:
+        return True
+    return (datetime.now() - stamp).total_seconds() >= AUTO_CHECK_INTERVAL
+
+
+def auto_check_loop() -> None:
+    """Фоновая проверка при старте: не чаще раза в сутки."""
+    if not _auto_check_due():
+        return
+    time.sleep(AUTO_CHECK_SECONDS)
+    if _icon is not None:
+        start_check(manual=False)
 
 
 def build_menu() -> pystray.Menu:
+    version_item = pystray.MenuItem(
+        lambda item: i18n.t('menu_version', version=_version_label()),
+        None, enabled=False,
+        visible=lambda item: updater.is_installed())
     return pystray.Menu(
         pystray.MenuItem(meeting_text, None, enabled=False,
                          visible=lambda item: meeting_text() != ''),
@@ -680,22 +878,26 @@ def build_menu() -> pystray.Menu:
         pystray.MenuItem(reason_text, None, enabled=False,
                          visible=lambda item: reason_text() != ''),
         pystray.Menu.SEPARATOR,
-        pystray.MenuItem('Включить', _deadline_submenu(pc.MODE_ON)),
-        pystray.MenuItem('Выключить', _deadline_submenu(pc.MODE_OFF)),
+        pystray.MenuItem(i18n.t('menu_on'), _deadline_submenu(pc.MODE_ON)),
+        pystray.MenuItem(i18n.t('menu_off'), _deadline_submenu(pc.MODE_OFF)),
         pystray.Menu.SEPARATOR,
-        pystray.MenuItem('Автоматика по встречам', lambda icon, item: act(pc.MODE_AUTO),
+        pystray.MenuItem(i18n.t('menu_auto'), lambda icon, item: act(pc.MODE_AUTO),
                          checked=lambda item: _state['mode'] == pc.MODE_AUTO, radio=True),
-        pystray.MenuItem('Снять автоматику', _deadline_submenu(pc.MODE_PAUSED)),
+        pystray.MenuItem(i18n.t('menu_pause'), _deadline_submenu(pc.MODE_PAUSED)),
         pystray.Menu.SEPARATOR,
         pystray.MenuItem(lambda item: error_text() or '', open_log,
                          visible=lambda item: error_text() is not None, enabled=False),
-        pystray.MenuItem('Настроить розетку…', open_setup,
+        pystray.MenuItem(i18n.t('menu_setup'), open_setup,
                          visible=lambda item: is_unconfigured()),
-        pystray.MenuItem('Проверить розетку', open_verify),
-        pystray.MenuItem('Открыть plug.log', open_log),
-        pystray.MenuItem('Открыть журнал встреч', open_events_log),
-        pystray.MenuItem('Отчёт для поддержки', make_report),
-        pystray.MenuItem('Выход', quit_app),
+        pystray.MenuItem(i18n.t('menu_verify'), open_verify),
+        pystray.MenuItem(i18n.t('menu_plug_log'), open_log),
+        pystray.MenuItem(i18n.t('menu_events_log'), open_events_log),
+        pystray.MenuItem(i18n.t('menu_report'), make_report),
+        pystray.Menu.SEPARATOR,
+        pystray.MenuItem(i18n.t('menu_language'), _language_submenu()),
+        pystray.MenuItem(update_text, update_action, enabled=update_enabled),
+        version_item,
+        pystray.MenuItem(i18n.t('menu_exit'), quit_app),
     )
 
 
@@ -722,7 +924,9 @@ def main() -> int:
         threading.Thread(target=first_run_prompt, daemon=True).start()
     stop = threading.Event()
     threading.Thread(target=poll_loop, args=(stop,), daemon=True).start()
-    log('tray started')
+    threading.Thread(target=auto_check_loop, daemon=True).start()
+    log(f'tray started (language {i18n.get_language()}, '
+        f'version {_version_label()})')
     try:
         _icon.run()
     finally:

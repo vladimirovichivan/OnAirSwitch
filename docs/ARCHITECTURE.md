@@ -150,6 +150,32 @@ start.vbs ──> supervisor.py ──> watch_meetings.ps1 ──> state.json �
   `Local\LegacyPlugTray`.
 - зависимости: `pystray`, `Pillow`.
 
+### `i18n.py` — язык интерфейса
+
+- строки меню, уведомлений, мастера и CLI — в одном словаре (`ru`/`en`), ключи
+  одинаковы для обоих языков (проверяется тестом).
+- «Авто» определяет язык Windows (`GetUserDefaultUILanguage`), иначе берётся
+  английский; выбор хранится в `data\work\meetings\settings.json` и переживает
+  обновление. В трее — подменю «Язык».
+- технические журналы (`plug.log`, `events.log`, `tray.log`, `supervisor.log`)
+  остаются на русском: их читает поддержка, а не пользователь.
+
+### `updater.py` — обновления
+
+- проверка последнего выпуска GitHub Releases (`vladimirovichivan/OnAirSwitch`)
+  по HTTPS; версия сравнивается с `app\build.json`; адрес ленты можно
+  переопределить `ONAIR_UPDATE_FEED` или ключом `update_feed` в `settings.json`.
+- трей проверяет обновления при старте (не чаще раза в сутки) и по пункту меню;
+  установка — только после подтверждения.
+- скачиваются установщик и `SHA256SUMS.txt`; SHA256 сверяется до запуска.
+  Файлы кладутся в `app\data\updates`.
+- установщик запускает VBS-helper из `%TEMP%`: он ждёт закрытия приложения,
+  выполняет `/SILENT` с сохранением выбранных задач (`autostart`, `desktopicon`),
+  затем снова запускает `start.vbs`. Поэтому после обновления работают те же
+  четыре процесса.
+- в dev-копии установка отключена (нет `start.vbs` и `app\build.json`), проверка
+  версии работает.
+
 ### `tuya_setup.py` — получение ключей и проверка
 
 - однократно: Tuya IoT Platform → Access ID/Secret → `dev_id` и `local_key`
@@ -183,7 +209,9 @@ app\scripts\meetings\        скрипты, tuya_discovery.py и profiles.json
 app\scripts\meetings\icons\  lamp-on.png, lamp-off.png для трея
 app\build.json               версия, дата, commit (в репозитории нет — «dev»)
 app\data\work\meetings\      state.json, control.json, plug_state.json, журналы
-                            (events.log, plug.log, tray.log, supervisor.log)
+                            (events.log, plug.log, tray.log, supervisor.log),
+                            settings.json (язык и время проверки обновлений)
+app\data\updates\            скачанный установщик и SHA256SUMS.txt
 app\secrets\tuya_plug.json   dev_id, local_key, адрес, версия протокола, DP
 ```
 

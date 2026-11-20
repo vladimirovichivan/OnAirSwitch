@@ -38,6 +38,7 @@ import urllib.request
 import uuid
 from pathlib import Path
 
+import i18n
 import tuya_discovery as discovery
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -97,23 +98,27 @@ class TuyaCloud:
             with urllib.request.urlopen(request, timeout=20) as response:
                 payload = json.loads(response.read().decode('utf-8'))
         except urllib.error.HTTPError as exc:
-            raise TuyaError(f'HTTP {exc.code} при обращении к {path}') from exc
+            raise TuyaError(i18n.t('setup_http_error', code=exc.code,
+                                   path=path)) from exc
         except (urllib.error.URLError, TimeoutError) as exc:
-            raise TuyaError(f'нет связи с {self.base}: {exc}') from exc
+            raise TuyaError(i18n.t('setup_conn_error', base=self.base,
+                                   error=exc)) from exc
 
         if not payload.get('success'):
-            raise TuyaError(f'API отказал на {path}: код {payload.get("code")} {payload.get("msg")}')
+            raise TuyaError(i18n.t('setup_api_error', path=path,
+                                   code=payload.get('code'),
+                                   message=payload.get('msg')))
         return payload.get('result') or {}
 
     def connect(self) -> str:
         result = self._request('GET', '/v1.0/token?grant_type=1')
         self.token = result.get('access_token')
         if not self.token:
-            raise TuyaError('в ответе нет access_token')
+            raise TuyaError(i18n.t('setup_no_token'))
         uid = result.get('uid')
         if not uid:
-            raise TuyaError('в ответе нет uid аккаунта')
-        print(f'токен получен, аккаунт связан (uid …{uid[-4:]})')
+            raise TuyaError(i18n.t('setup_no_uid'))
+        print(i18n.t('setup_token_ok', tail=uid[-4:]))
         return uid
 
     def devices(self, uid: str) -> list[dict]:
@@ -124,7 +129,7 @@ class TuyaCloud:
             try:
                 result = self._request('GET', path)
             except TuyaError as exc:
-                print(f'  список {path} недоступен: {exc}')
+                print(i18n.t('setup_list_unavailable', path=path, error=exc))
                 continue
             for node in walk_dicts(result):
                 if node.get('id') and ('name' in node or 'local_key' in node):
@@ -139,7 +144,7 @@ class TuyaCloud:
 
 def mask(value: str) -> str:
     if not value:
-        return '(пусто)'
+        return i18n.t('setup_empty_value')
     return value[:4] + '…' + value[-2:]
 
 
@@ -157,33 +162,34 @@ def walk_dicts(node):
 def diagnose(cloud: TuyaCloud, uid: str, device_id: str) -> int:
     """Проверяет доступность разных эндпоинтов: видно, что именно запрещено."""
     checks = [
-        ('список устройств аккаунта (Smart Home Basic)', f'/v1.0/users/{uid}/devices'),
-        ('связанные аккаунты (Smart Home Basic)', '/v1.0/iot-01/associated-users/devices'),
+        (i18n.t('setup_user_devices'), f'/v1.0/users/{uid}/devices'),
+        (i18n.t('setup_associated'), '/v1.0/iot-01/associated-users/devices'),
     ]
     if device_id:
-        checks.insert(0, ('карточка устройства (Smart Home Basic)', f'/v1.0/devices/{device_id}'))
+        checks.insert(0, (i18n.t('setup_device_card'), f'/v1.0/devices/{device_id}'))
     for title, path in checks:
         try:
             result = cloud._request('GET', path)
         except TuyaError as exc:
-            print(f'  ✗ {title}: {exc}')
+            print(i18n.t('setup_check_failed', title=title, error=exc))
             continue
         size = len(result) if isinstance(result, list) else len(result.keys())
-        print(f'  ✓ {title}: доступен (полей/записей: {size})')
+        print(i18n.t('setup_check_ok', title=title, size=size))
         if path.endswith('/devices') and isinstance(result, list) and device_id:
             found = [d for d in result if d.get('id') == device_id]
-            print(f'    устройство {mask(device_id)} в списке: {"да" if found else "нет"}')
+            print(i18n.t('setup_device_in_list', mask=mask(device_id),
+                         answer=i18n.t('setup_yes') if found else i18n.t('setup_no')))
     return 0
 
 
 def _parse_switch(result, switch_dp: str) -> tuple[bool | None, str | None]:
     if not isinstance(result, dict) or 'dps' not in result:
         error = result.get('Error') if isinstance(result, dict) else result
-        return None, f'нет ответа ({error})'
+        return None, i18n.t('setup_no_response', error=error)
     value = (result.get('dps') or {}).get(str(switch_dp))
     if value is None:
         available = sorted((result.get('dps') or {}).keys())
-        return None, f'в ответе нет DP {switch_dp}; доступны {available}'
+        return None, i18n.t('setup_no_dp', dp=switch_dp, available=available)
     return str(value).lower() in ('true', '1', 'on'), None
 
 
@@ -216,34 +222,34 @@ def verify(config_path: Path, override_address: str, force: bool) -> int:
     `dev_id` — только маской.
     """
     if not config_path.exists():
-        print(f'конфигурация не найдена: {config_path}')
-        print('Сначала выполните настройку: python tuya_setup.py --address <IP>')
+        print(i18n.t('setup_config_missing', path=config_path))
+        print(i18n.t('setup_config_missing_hint'))
         return 1
     try:
         config = json.loads(config_path.read_text(encoding='utf-8-sig'))
     except (OSError, ValueError) as exc:
-        print(f'конфигурация не читается: {exc}')
+        print(i18n.t('setup_config_unreadable', error=exc))
         return 1
     dev_id = str(config.get('dev_id') or '')
     local_key = str(config.get('local_key') or '')
     if not dev_id or not local_key:
-        print('в конфигурации нет dev_id или local_key — повторите настройку.')
+        print(i18n.t('setup_config_incomplete'))
         return 1
     switch_dp = str(config.get('switch_dp', '1'))
     version = str(config.get('version', '3.3'))
 
     if _meeting_in_progress(DEFAULT_STATE) and not force:
-        print('сейчас идёт встреча: проверка переключила бы лампу.')
-        print('Дождитесь окончания или запустите с --force, если это безопасно.')
+        print(i18n.t('setup_meeting'))
+        print(i18n.t('setup_meeting_hint'))
         return 4
 
     try:
         import tinytuya
     except ImportError:
-        print('tinytuya не установлен: для --verify нужен .venv или vendor.')
+        print(i18n.t('setup_no_tinytuya'))
         return 2
 
-    print('поиск розетки в локальной сети…')
+    print(i18n.t('setup_searching'))
     discovered = discovery.find_addresses(dev_id, seconds=6.0)
     addresses: list[str] = []
     if override_address:
@@ -253,12 +259,13 @@ def verify(config_path: Path, override_address: str, force: bool) -> int:
     if configured and configured not in addresses:
         addresses.append(configured)
     if not addresses:
-        print('устройство не найдено: проверьте, что розетка в той же сети.')
+        print(i18n.t('setup_not_found'))
         return 5
     if discovered:
-        print('  найдено UDP-поиском: ' + ', '.join(ip for ip, _ in discovered))
+        print(i18n.t('setup_found_udp',
+                     addresses=', '.join(ip for ip, _ in discovered)))
     else:
-        print('  UDP-поиск не ответил, проверяю сохранённый адрес')
+        print(i18n.t('setup_udp_silent'))
 
     versions = [version] + [item for item in ('3.3', '3.4', '3.5') if item != version]
     chosen = None
@@ -268,124 +275,130 @@ def verify(config_path: Path, override_address: str, force: bool) -> int:
             try:
                 result = device.status()
             except Exception as exc:
-                print(f'  {address}, протокол {candidate_version}: '
-                      f'{type(exc).__name__}: {exc}')
+                print(i18n.t('setup_protocol_error', address=address,
+                             version=candidate_version,
+                             error=f'{type(exc).__name__}: {exc}'))
                 continue
             state, error = _parse_switch(result, switch_dp)
             if error:
-                print(f'  {address}, протокол {candidate_version}: {error}')
+                print(i18n.t('setup_protocol_error', address=address,
+                             version=candidate_version, error=error))
                 continue
             chosen = (address, candidate_version, state, device)
             break
         if chosen:
             break
     if chosen is None:
-        print('не удалось прочитать состояние: адрес отвечает, но ключ или протокол')
-        print('не подошли. Проверьте, что розетку не перепривязывали в Smart Life.')
+        print(i18n.t('setup_read_failed'))
+        print(i18n.t('setup_read_failed_hint'))
         return 6
 
     address, used_version, initial, device = chosen
     print('')
-    print(f'  устройство: {config.get("name") or "розетка"}')
-    print(f'  dev_id:     {mask(dev_id)}')
-    print(f'  адрес:      {address}')
-    print(f'  протокол:   {used_version}, DP {switch_dp}')
-    print(f'  состояние:  {"включена" if initial else "выключена"}')
+    print(i18n.t('setup_device', name=config.get('name') or i18n.t('setup_default_name')))
+    print(i18n.t('setup_dev_id', mask=mask(dev_id)))
+    print(i18n.t('setup_address', address=address))
+    print(i18n.t('setup_protocol', version=used_version, dp=switch_dp))
+    print(i18n.t('setup_state', state=i18n.t(
+        'setup_state_on' if initial else 'setup_state_off')))
 
     target = not initial
     switched = False
     restored = None
     try:
-        print(f'  переключаю: {"включить" if target else "выключить"}…')
+        print(i18n.t('setup_switching_on' if target else 'setup_switching_off'))
         result = device.turn_on() if target else device.turn_off()
         if isinstance(result, dict) and result.get('Error'):
-            print(f'  устройство отклонило команду: {result.get("Error")}')
+            print(i18n.t('setup_rejected', error=result.get('Error')))
             return 7
         switched = True
         time.sleep(1)
         state, error = _parse_switch(device.status(), switch_dp)
         if error:
-            print(f'  не удалось подтвердить переключение: {error}')
+            print(i18n.t('setup_confirm_failed', error=error))
             return 7
         if state != target:
-            print('  состояние после команды не совпало с ожидаемым')
+            print(i18n.t('setup_mismatch'))
             return 7
-        print(f'  подтверждено чтением: {"включена" if target else "выключена"}')
+        print(i18n.t('setup_confirmed', state=i18n.t(
+            'setup_state_on' if target else 'setup_state_off')))
     finally:
         if switched:
-            print(f'  возвращаю исходное состояние: '
-                  f'{"включить" if initial else "выключить"}…')
+            print(i18n.t('setup_restoring_on' if initial
+                         else 'setup_restoring_off'))
             try:
                 result = device.turn_on() if initial else device.turn_off()
                 if isinstance(result, dict) and result.get('Error'):
-                    print(f'  вернуть не удалось: {result.get("Error")}')
+                    print(i18n.t('setup_restore_failed',
+                                 error=result.get('Error')))
                 else:
                     time.sleep(1)
                     restored, error = _parse_switch(device.status(), switch_dp)
                     if error:
-                        print(f'  не удалось перечитать состояние: {error}')
+                        print(i18n.t('setup_reread_failed', error=error))
                     elif restored != initial:
-                        print('  внимание: исходное состояние не подтверждено')
+                        print(i18n.t('setup_restore_unconfirmed'))
                     else:
-                        print(f'  исходное состояние восстановлено: '
-                              f'{"включена" if initial else "выключена"}')
+                        print(i18n.t('setup_restored', state=i18n.t(
+                            'setup_state_on' if initial else 'setup_state_off')))
             except Exception as exc:
-                print(f'  вернуть не удалось: {type(exc).__name__}: {exc}')
+                print(i18n.t('setup_restore_failed',
+                             error=f'{type(exc).__name__}: {exc}'))
 
     print('')
-    print('проверка пройдена: связь, ключ, DP и переключение работают.')
+    print(i18n.t('setup_verify_passed'))
     return 0
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description='Получение ключей Tuya и запись secrets/tuya_plug.json')
-    parser.add_argument('--region', choices=sorted(REGIONS), default='eu', help='дата-центр проекта (по умолчанию eu)')
-    parser.add_argument('--address', default='', help='IP розетки; при совпадении устройство выбирается без вопросов')
-    parser.add_argument('--device-id', default='', help='Device ID для проверки в режиме --diagnose')
-    parser.add_argument('--diagnose', action='store_true', help='только проверить доступность API, ничего не записывать')
+    parser = argparse.ArgumentParser(description=i18n.t('setup_arg_description'))
+    parser.add_argument('--region', choices=sorted(REGIONS), default='eu', help=i18n.t('setup_arg_region'))
+    parser.add_argument('--address', default='', help=i18n.t('setup_arg_address'))
+    parser.add_argument('--device-id', default='', help=i18n.t('setup_arg_device_id'))
+    parser.add_argument('--diagnose', action='store_true', help=i18n.t('setup_arg_diagnose'))
     parser.add_argument('--verify', action='store_true',
-                        help='проверить настроенную розетку: поиск, чтение, переключение и возврат')
+                        help=i18n.t('setup_arg_verify'))
     parser.add_argument('--force', action='store_true',
-                        help='в режиме --verify переключать даже во время встречи')
+                        help=i18n.t('setup_arg_force'))
     parser.add_argument('--reconfigure', action='store_true',
-                        help='записать ключи заново, даже если файл настроек уже есть')
+                        help=i18n.t('setup_arg_reconfigure'))
     parser.add_argument('--skip-verify', action='store_true',
-                        help='не проверять розетку сразу после записи настроек')
+                        help=i18n.t('setup_arg_skip_verify'))
     parser.add_argument('--out', type=Path, default=DEFAULT_OUT,
-                        help='файл конфигурации: куда записать или что проверять в --verify')
+                        help=i18n.t('setup_arg_out'))
     args = parser.parse_args()
 
     if args.verify:
         return verify(args.out, args.address, args.force)
 
     if args.out.exists() and not args.reconfigure and not args.diagnose:
-        print(f'Розетка уже настроена: {args.out}')
-        print('Выполняю проверку подключения (перезаписать ключи: --reconfigure).')
+        print(i18n.t('setup_already', path=args.out))
+        print(i18n.t('setup_already_hint'))
         return verify(args.out, args.address, args.force)
 
-    print('Access ID и Access Secret из Tuya IoT Platform → ваш проект → Overview.')
-    client_id = input('Access ID: ').strip()
-    secret = getpass.getpass('Access Secret (ввод не отображается): ').strip()
+    print(i18n.t('setup_credentials_hint'))
+    client_id = input(i18n.t('setup_access_id')).strip()
+    secret = getpass.getpass(i18n.t('setup_access_secret')).strip()
     if not client_id or not secret:
-        print('нужны оба значения')
+        print(i18n.t('setup_credentials_required'))
         return 1
 
     cloud = TuyaCloud(client_id, secret, args.region)
     try:
         uid = cloud.connect()
         if args.diagnose:
-            print('проверка API:')
+            print(i18n.t('setup_api_check'))
             return diagnose(cloud, uid, args.device_id)
         chosen = None
         if args.device_id:
             # Явный Device ID: список устройств не требуется (у части проектов он запрещён).
-            print(f'устройство задано явно: {mask(args.device_id)}')
+            print(i18n.t('setup_explicit_device', mask=mask(args.device_id)))
             chosen = cloud.device(args.device_id)
         else:
             items = cloud.devices(uid)
-            print(f'устройств в аккаунте: {len(items)}')
+            print(i18n.t('setup_devices_count', count=len(items)))
             if not items:
-                print('Список пуст: проверьте привязку аккаунта Smart Life в проекте (Devices → Link Tuya App Account).')
+                print(i18n.t('setup_empty_list'))
                 return 1
 
             if args.address:
@@ -395,31 +408,32 @@ def main() -> int:
                         chosen = detail
                         break
                 if chosen is None:
-                    print(f'Устройство с IP {args.address} не найдено. Доступны:')
+                    print(i18n.t('setup_ip_not_found', address=args.address))
         if chosen is None:
             for index, item in enumerate(items, 1):
                 detail = cloud.device(item['id'])
-                print(f'  {index}. {item.get("name")} — id {mask(item["id"])}, ip {detail.get("ip") or "(нет)"}'
+                print(f'  {index}. {item.get("name")} — id {mask(item["id"])}, '
+                      f'ip {detail.get("ip") or "(none)"}'
                       f', online {detail.get("online")}')
             while True:
-                answer = input('Номер устройства: ').strip()
+                answer = input(i18n.t('setup_choose_number')).strip()
                 if answer.isdigit() and 1 <= int(answer) <= len(items):
                     chosen = cloud.device(items[int(answer) - 1]['id'])
                     break
-                print('введите номер из списка')
+                print(i18n.t('setup_enter_number'))
     except TuyaError as exc:
-        print(f'ошибка: {exc}')
-        print('Код 1106 — вызов API не разрешён этому проекту. Проверьте Service API проекта:')
-        print('  Cloud → Development → ваш проект → Service API: у "Smart Home Basic Service"')
-        print('  статус должен быть Subscribed/Authorized, а не Not subscribed/Expired.')
-        print('  Если проект создавался кнопкой Skip вместо Authorize, подписки нет — подпишите вручную.')
-        print('  После подписки подождите минуту и повторите; токен кэшируется на 2 часа, но права применяются сразу.')
-        print('Быстрая проверка без записи файла: добавьте --diagnose --device-id REDACTED')
+        print(i18n.t('setup_error', error=exc))
+        print(i18n.t('setup_1106'))
+        print(i18n.t('setup_1106_service'))
+        print(i18n.t('setup_1106_status'))
+        print(i18n.t('setup_1106_skip'))
+        print(i18n.t('setup_1106_wait'))
+        print(i18n.t('setup_1106_quick'))
         return 2
 
     local_key = chosen.get('local_key')
     if not local_key:
-        print('в ответе нет local_key: устройство может быть без локального протокола.')
+        print(i18n.t('setup_no_local_key'))
         return 3
 
     cloud_ip = chosen.get('ip') or ''
@@ -427,19 +441,19 @@ def main() -> int:
     # протокол работает только по адресу в домашней сети.
     discovered_ip = ''
     print('')
-    print('поиск адреса розетки в локальной сети (UDP)…')
+    print(i18n.t('setup_search_address'))
     found = discovery.find_addresses(chosen['id'], seconds=6.0)
     if found:
         discovered_ip = found[0][0]
-        print(f'  найден адрес: {discovered_ip}')
+        print(i18n.t('setup_found_address', address=discovered_ip))
     else:
-        print('  устройство не ответило на поиск; беру адрес из --address или облака')
+        print(i18n.t('setup_address_fallback'))
     address = args.address or discovered_ip or cloud_ip
     if args.address and discovered_ip and args.address != discovered_ip:
-        print(f'  внимание: поиск нашёл {discovered_ip}, но взят адрес из --address')
+        print(i18n.t('setup_address_warning', found=discovered_ip))
 
     config = {
-        'name': chosen.get('name') or 'розетка',
+        'name': chosen.get('name') or i18n.t('setup_default_name'),
         'dev_id': chosen['id'],
         'local_key': local_key,
         'address': address,
@@ -450,33 +464,34 @@ def main() -> int:
     args.out.write_text(json.dumps(config, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
 
     print('')
-    print(f'записано: {args.out}')
-    print(f'  устройство: {config["name"]}')
-    print(f'  dev_id:     {mask(config["dev_id"])}')
-    print(f'  local_key:  получен ({len(local_key)} символов)')
-    print(f'  адрес:      {config["address"] or "(не указан)"}')
+    print(i18n.t('setup_written', path=args.out))
+    print(i18n.t('setup_device', name=config["name"]))
+    print(i18n.t('setup_dev_id', mask=mask(config["dev_id"])))
+    print(i18n.t('setup_local_key_ok', length=len(local_key)))
+    if config["address"]:
+        print(i18n.t('setup_address', address=config["address"]))
+    else:
+        print(i18n.t('setup_address_unset'))
     if cloud_ip and args.address and cloud_ip != args.address:
-        print(f'  (облако сообщает {cloud_ip} — это внешний IP; взят адрес из --address)')
+        print(i18n.t('setup_cloud_external', ip=cloud_ip))
     if not args.address:
-        print('  внимание: адрес взят из облака и может быть внешним IP; для локального')
-        print('  протокола укажите --address <IP в домашней сети> и повторите.')
+        print(i18n.t('setup_cloud_warning'))
     print('')
     if args.skip_verify:
-        print('Проверка пропущена (--skip-verify).')
+        print(i18n.t('setup_verify_skipped'))
     else:
-        print('Проверка подключения: чтение, переключение и возврат состояния.')
+        print(i18n.t('setup_verify_start'))
         result = verify(args.out, args.address, args.force)
         print('')
         if result == 0:
-            print('Настройка и проверка завершены: розетка работает.')
+            print(i18n.t('setup_done'))
         elif result == 4:
-            print('Настройки сохранены. Сейчас идёт встреча, поэтому переключение')
-            print('не проверялось; проверка повторится при следующем запуске мастера.')
+            print(i18n.t('setup_saved_meeting'))
         else:
-            print(f'Настройки сохранены, но проверка не пройдена (код {result}).')
-            print('Приложение всё равно запустится; если лампа не работает — SUPPORT.md.')
-    print('Повторная проверка: setup.cmd или tuya_setup.py --verify.')
-    print('Если подключение не удастся, версия протокола подбирается: 3.3 → 3.4 → 3.5.')
+            print(i18n.t('setup_saved_failed', code=result))
+            print(i18n.t('setup_will_start'))
+    print(i18n.t('setup_repeat'))
+    print(i18n.t('setup_protocol_fallback'))
     return 0
 
 

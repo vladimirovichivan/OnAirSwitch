@@ -41,6 +41,8 @@ import sys
 from datetime import datetime, timedelta
 from pathlib import Path
 
+import i18n
+
 MODE_AUTO = 'auto'
 MODE_ON = 'on'
 MODE_OFF = 'off'
@@ -225,40 +227,53 @@ def write_status(path: Path | None, payload: dict) -> None:
     _atomic_write(path, text + '\n')
 
 
-def describe(mode: str, until: datetime | None) -> str:
-    """Короткое человеческое описание режима."""
+def describe(mode: str, until: datetime | None,
+             language: str | None = None) -> str:
+    """Короткое человеческое описание режима (на языке интерфейса)."""
     if mode == MODE_AUTO:
-        return 'автоматика по встречам'
+        return i18n.translate('desc_auto', language)
     if mode == MODE_PAUSED:
-        base = 'автоматика снята'
+        base = i18n.translate('desc_paused', language)
     elif mode == MODE_ON:
-        base = 'включена вручную'
+        base = i18n.translate('desc_on', language)
     else:
-        base = 'выключена вручную'
+        base = i18n.translate('desc_off', language)
     if until is None:
-        return base + ', до ручного возврата'
-    return base + f' до {format_stamp(until)[11:16]}'
+        return i18n.translate('desc_manual_until', language, base=base)
+    return i18n.translate('desc_until', language, base=base,
+                          time=format_stamp(until)[11:16])
 
 
-def _report(control: dict, status: dict | None) -> str:
+def _report(control: dict, status: dict | None,
+            language: str | None = None) -> str:
     mode, until, _ = resolve(control)
-    lines = [f'mode: {mode} ({describe(mode, until)})']
+    lines = [i18n.translate('cli_mode', language, mode=mode,
+                            description=describe(mode, until, language))]
     if control.get('mode') != mode:
-        lines.append(f'control.json: {control.get("mode")} просрочен, исполнитель вернёт auto')
+        lines.append(i18n.translate('cli_expired', language,
+                                    mode=control.get('mode')))
     if control.get('updated'):
-        lines.append(f'control updated: {control["updated"]} (source {control.get("source")})')
+        lines.append(i18n.translate(
+            'cli_control_updated', language, stamp=control['updated'],
+            source=control.get('source')))
     if status is None:
-        lines.append('executor: plug_state.json отсутствует')
+        lines.append(i18n.translate('cli_status_missing', language))
     elif status.get('configured') is False:
-        lines.append('executor: розетка не настроена (мастер настройки ещё не пройден)')
+        lines.append(i18n.translate('cli_not_configured', language))
     else:
         actual = status.get('actual')
-        lamp = {True: 'включена', False: 'выключена'}.get(actual, 'неизвестно')
+        lamp = {True: i18n.translate('lamp_on', language),
+                False: i18n.translate('lamp_off', language)}.get(
+                    actual, i18n.translate('lamp_unknown', language))
         suffix = f' (checked {status.get("checked")})' if status.get('checked') else ''
-        lines.append(f'lamp: {lamp}{suffix}')
-        lines.append(f'executor: heartbeat {status.get("updated")}; режим исполнителя {status.get("mode")}')
+        lines.append(i18n.translate('cli_lamp', language, state=lamp,
+                                    suffix=suffix))
+        lines.append(i18n.translate(
+            'cli_heartbeat', language, stamp=status.get('updated'),
+            mode=status.get('mode')))
         if status.get('error'):
-            lines.append(f'error: {status["error"]}')
+            lines.append(i18n.translate('cli_error', language,
+                                        error=status['error']))
     return '\n'.join(lines)
 
 
@@ -287,13 +302,12 @@ def main() -> int:
     try:
         data = apply_mode(mode, args.spec, args.source, args.control, log_path=args.log)
     except (OSError, ValueError) as exc:
-        print(f'failed: {exc}', file=sys.stderr)
+        print(i18n.t('cli_failed', error=exc), file=sys.stderr)
         return 2
 
     until = parse_stamp(data.get('until'))
-    print(f'mode: {mode} ({describe(mode, until)})')
-    print('исполнитель применит режим в течение нескольких секунд '
-          '(если он запущен и состояние устройства читается)')
+    print(i18n.t('cli_mode', mode=mode, description=describe(mode, until)))
+    print(i18n.t('cli_applied'))
     return 0
 
 

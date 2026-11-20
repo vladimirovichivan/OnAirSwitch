@@ -49,10 +49,33 @@ RestartApplications=no
 
 [Languages]
 Name: "russian"; MessagesFile: "compiler:Languages\Russian.isl"
+Name: "english"; MessagesFile: "compiler:Default.isl"
+
+[CustomMessages]
+russian.TaskAutostart=Запускать OnAir Lamp при входе в Windows
+russian.TaskAutostartGroup=Автозапуск:
+russian.TaskDesktopIcon=Ярлык на рабочем столе
+russian.TaskDesktopIconGroup=Дополнительно:
+russian.IconSetup=Настройка и проверка OnAir Lamp
+russian.IconReport=Отчёт для поддержки
+russian.IconSupport=Если не работает
+russian.RunApp=Запустить OnAir Lamp
+russian.RunReadme=Открыть README.txt — как установить и настроить приложение
+russian.UninstallRemoveSettings=Удалить сохранённые настройки подключения к розетке?%n%nОни позволяют после повторной установки продолжить работу без новой настройки розетки.%nПрограмма, журналы и остальные её файлы удаляются в любом случае.%n%nЕсли удалить настройки, при следующей установке розетку нужно будет настроить заново.
+english.TaskAutostart=Start OnAir Lamp when you sign in to Windows
+english.TaskAutostartGroup=Autostart:
+english.TaskDesktopIcon=Desktop shortcut
+english.TaskDesktopIconGroup=Optional:
+english.IconSetup=Set up and verify OnAir Lamp
+english.IconReport=Support report
+english.IconSupport=If it does not work
+english.RunApp=Start OnAir Lamp
+english.RunReadme=Open README.txt — how to install and set up the app
+english.UninstallRemoveSettings=Remove the saved socket connection settings?%n%nThey let the app keep working after reinstallation without setting up the socket again.%nThe program, logs and all other files are removed in any case.%n%nIf you remove the settings, you will need to set up the socket again after reinstalling.
 
 [Tasks]
-Name: "autostart"; Description: "Запускать OnAir Lamp при входе в Windows"; GroupDescription: "Автозапуск:"
-Name: "desktopicon"; Description: "Ярлык на рабочем столе"; GroupDescription: "Дополнительно:"; Flags: unchecked
+Name: "autostart"; Description: "{cm:TaskAutostart}"; GroupDescription: "{cm:TaskAutostartGroup}"
+Name: "desktopicon"; Description: "{cm:TaskDesktopIcon}"; GroupDescription: "{cm:TaskDesktopIconGroup}"; Flags: unchecked
 
 [Files]
 Source: "{#StageDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
@@ -60,21 +83,21 @@ Source: "..\build\onair.ico"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\OnAir Lamp"; Filename: "{sys}\wscript.exe"; Parameters: """{app}\start.vbs"""; IconFilename: "{app}\onair.ico"; WorkingDir: "{app}"
-Name: "{group}\Настройка и проверка OnAir Lamp"; Filename: "{app}\setup.cmd"; IconFilename: "{app}\onair.ico"; WorkingDir: "{app}"
-Name: "{group}\Отчёт для поддержки"; Filename: "{app}\report.cmd"; IconFilename: "{app}\onair.ico"; WorkingDir: "{app}"
-Name: "{group}\Если не работает"; Filename: "{app}\SUPPORT.md"
+Name: "{group}\{cm:IconSetup}"; Filename: "{app}\setup.cmd"; IconFilename: "{app}\onair.ico"; WorkingDir: "{app}"
+Name: "{group}\{cm:IconReport}"; Filename: "{app}\report.cmd"; IconFilename: "{app}\onair.ico"; WorkingDir: "{app}"
+Name: "{group}\{cm:IconSupport}"; Filename: "{app}\SUPPORT.md"
 Name: "{autodesktop}\OnAir Lamp"; Filename: "{sys}\wscript.exe"; Parameters: """{app}\start.vbs"""; IconFilename: "{app}\onair.ico"; WorkingDir: "{app}"; Tasks: desktopicon
 
 [Registry]
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "OnAirLamp"; ValueData: "wscript.exe ""{app}\start.vbs"""; Flags: uninsdeletevalue; Tasks: autostart
 
 [Run]
-Filename: "{sys}\wscript.exe"; Parameters: """{app}\start.vbs"""; Description: "Запустить OnAir Lamp"; Flags: postinstall nowait skipifsilent
+Filename: "{sys}\wscript.exe"; Parameters: """{app}\start.vbs"""; Description: "{cm:RunApp}"; Flags: postinstall nowait skipifsilent
 ; README.txt — копия INSTALL.md в папке программы (её кладёт build.ps1). Галочка
 ; стоит по умолчанию: инструкцию предлагаем открыть сразу, иначе получатель не
 ; узнает, что розетку нужно настраивать мастером. Блокнот выбран намеренно: он
 ; есть всегда и не зависит от ассоциаций .md/.txt.
-Filename: "{sys}\notepad.exe"; Parameters: """{app}\README.txt"""; Description: "Открыть README.txt — как установить и настроить приложение"; Flags: postinstall nowait skipifsilent
+Filename: "{sys}\notepad.exe"; Parameters: """{app}\README.txt"""; Description: "{cm:RunReadme}"; Flags: postinstall nowait skipifsilent
 
 [UninstallRun]
 ; Полный путь: в System32 файла powershell.exe нет (он в WindowsPowerShell\v1.0),
@@ -168,11 +191,7 @@ begin
     Exit;
 
   Answer := MsgBox(
-    'Удалить сохранённые настройки подключения к розетке?' + #13#10 + #13#10 +
-    'Они позволяют после повторной установки продолжить работу без новой ' +
-    'настройки розетки.' + #13#10 +
-    'Программа, журналы и остальные её файлы удаляются в любом случае.' + #13#10 + #13#10 +
-    'Если удалить настройки, при следующей установке розетку нужно будет настроить заново.',
+    ExpandConstant('{cm:UninstallRemoveSettings}'),
     mbConfirmation, MB_YESNO or MB_DEFBUTTON2);
   if Answer = IDYES then
   begin
