@@ -84,10 +84,24 @@ $appProfiles = @(
         Processes      = @('ktalk')
         ExeName        = 'ktalk.exe'
         WindowMode     = 'anyOtherVisible'
-        ServicePatterns = @('^Толк$', '^ktalk$', '^DDE Server Window$', '^MSCTFIME UI$', '^Default IME$')
+        # Контур.Толк — Electron-приложение с одним окном-оболочкой: при переходе
+        # по разделам (вкладкам) оно меняет заголовок на название раздела, и
+        # «любое видимое окно» давало ложную встречу. Названия разделов поэтому
+        # перечислены как служебные (D-70). Новый раздел можно добавить здесь или
+        # переопределить профиль talk в profiles.json без пересборки.
+        ServicePatterns = @('^Толк$', '^Talk$', '^Kontur[ .]?Talk$', '^ktalk$', '^DDE Server Window$', '^MSCTFIME UI$', '^Default IME$',
+            # Русские и английские названия разделов: язык интерфейса Толка может
+            # быть любым, а заголовок окна повторяет подпись раздела.
+            '^Артефакты$', '^Artifacts$', '^Доски$', '^Whiteboards$', '^Контакты$', '^Contacts$',
+            '^Календарь$', '^Calendar$', '^Чаты$', '^Chats$', '^Звонки$', '^Calls$',
+            '^Сообщения$', '^Messages$', '^Настройки$', '^Settings$')
         WaitingPattern = '^Подключение к встрече'
         TitlePatterns  = @()
         ClassPatterns  = @()
+        # Контур.Толк регистрирует медиасессию Windows при проигрывании записи
+        # встречи; живая встреча (WebRTC) её не создаёт. Пока запись открыта
+        # (Playing/Paused), окно с темой — не встреча (D-71).
+        MediaAppId     = 'kontur.talk'
     },
     @{
         Id             = 'zoom'
@@ -353,9 +367,72 @@ function Test-DeviceInUse {
     return $false
 }
 
+# --- Проигрывание записи: медиасессия Windows ---
+# Контур.Толк, как и другие Electron-приложения, при проигрывании записи встречи
+# регистрирует в Windows медиасессию (SMTC): приложение, статус, название записи.
+# Живая встреча идёт через WebRTC и медиасессию не создаёт, поэтому активная
+# медиасессия (Playing/Paused) у Толка означает «смотрю запись», а не
+# «нахожусь на встрече» (D-71).
+# Если WinRT/SMTC недоступен, функция молча возвращает пустой набор и повторяет
+# попытку позже: окна работают как раньше, но запись не «залипает» навсегда.
+$script:mediaSupported = $true
+$script:mediaRetryAt = [DateTime]::MinValue
+$script:mediaManager = $null
+$script:mediaManagerType = $null
+$script:mediaAsTask = $null
+
+function Get-PlayingMediaApps {
+    $playing = @{}
+    if (-not $script:mediaSupported) {
+        if ((Get-Date) -lt $script:mediaRetryAt) { return $playing }
+        $script:mediaSupported = $true
+    }
+    try {
+        if (-not $script:mediaAsTask) {
+            Add-Type -AssemblyName System.Runtime.WindowsRuntime
+            $script:mediaManagerType = [Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager,Windows.Media.Control,ContentType=WindowsRuntime]
+            $script:mediaAsTask = ([System.WindowsRuntimeSystemExtensions].GetMethods() |
+                Where-Object {
+                    $_.Name -eq 'AsTask' -and $_.GetParameters().Count -eq 1 -and
+                    $_.GetParameters()[0].ParameterType.Name -eq 'IAsyncOperation`1'
+                })[0]
+        }
+        if (-not $script:mediaManager) {
+            $operation = $script:mediaManagerType::RequestAsync()
+            $task = $script:mediaAsTask.MakeGenericMethod($script:mediaManagerType).Invoke($null, @($operation))
+            if (-not $task.Wait(3000)) { throw 'media session manager timeout' }
+            $script:mediaManager = $task.Result
+        }
+        foreach ($session in $script:mediaManager.GetSessions()) {
+            # Запись может быть на паузе — это всё равно проигрыватель, а не
+            # встреча. Статусы Closed/Stopped означают, что сессия закрыта.
+            $status = $session.GetPlaybackInfo().PlaybackStatus.ToString()
+            if ($status -eq 'Playing' -or $status -eq 'Paused') {
+                $playing[$session.SourceAppUserModelId] = $true
+            }
+        }
+    } catch {
+        # WinRT/SMTC может быть недоступен или ответить таймаутом. Не отключаем
+        # проверку навсегда: через минуту попробуем снова, иначе запись во время
+        # сбоя снова включала бы лампу.
+        $script:mediaSupported = $false
+        $script:mediaRetryAt = (Get-Date).AddSeconds(60)
+    }
+    return $playing
+}
+
+function Test-MediaPlaying {
+    param($Profile, $PlayingApps)
+    if (-not $Profile.MediaAppId -or -not $PlayingApps) { return $false }
+    foreach ($id in $PlayingApps.Keys) {
+        if ($id -ieq $Profile.MediaAppId) { return $true }
+    }
+    return $false
+}
+
 # --- Снимок состояния приложения ---
 function Get-AppSnapshot {
-    param($Profile, $MicOwners)
+    param($Profile, $MicOwners, $PlayingApps)
     $processes = @(Get-Process -Name $Profile.Processes -ErrorAction SilentlyContinue)
     $snap = [pscustomobject]@{
         Profile         = $Profile
@@ -364,11 +441,13 @@ function Get-AppSnapshot {
         IsWaiting       = $false
         ActiveAudio     = 0
         MicInUse        = $false
+        MediaPlaying    = $false
         Windows         = @()
     }
     if (-not $snap.Running) { return $snap }
 
     if ($MicOwners) { $snap.MicInUse = Test-DeviceInUse $MicOwners $Profile.ExeName }
+    if ($PlayingApps) { $snap.MediaPlaying = Test-MediaPlaying $Profile $PlayingApps }
 
     $pids = @($processes | ForEach-Object { [uint32] $_.Id })
     $windows = @()
@@ -444,6 +523,8 @@ function Get-WindowVerdict {
 # после окна настроек сессии ktalk.exe остаются Active без встречи и без окон,
 # и такая «встреча» не завершается. Исключение — micOnly (Discord, D-69):
 # там окно не меняется, а захват микрофона — единственный надёжный признак.
+# Проигрывание записи (D-71) тоже даёт окно с темой встречи, но не является
+# встречей: у Толка в этот момент активна медиасессия Windows.
 function Get-RawState {
     param($Snapshot)
     if (-not $Snapshot.Running) { return 'none' }
@@ -451,6 +532,7 @@ function Get-RawState {
         if ($Snapshot.MicInUse) { return 'meeting' }
         return 'none'
     }
+    if ($Snapshot.MediaPlaying -and -not $Snapshot.MicInUse) { return 'none' }
     if ($Snapshot.ConferenceTitle) {
         if ($Snapshot.IsWaiting) { return 'waiting' }
         return 'meeting'
@@ -466,6 +548,9 @@ function Format-Details {
     )
     if ($Snapshot.Profile.WindowMode -eq 'micOnly') {
         $parts += ('microphone: ' + $(if ($Snapshot.MicInUse) { 'in use' } else { 'idle' }))
+    }
+    if ($Snapshot.Profile.MediaAppId) {
+        $parts += ('media: ' + $(if ($Snapshot.MediaPlaying) { 'active' } else { 'idle' }))
     }
     if (-not $NoTitles) {
         if ($Snapshot.ConferenceTitle) {
@@ -498,14 +583,18 @@ if ($Once) {
     Write-Output $profileNote
     $webcams = Get-DeviceOwners 'webcam'
     $microphones = Get-DeviceOwners 'microphone'
+    $mediaApps = Get-PlayingMediaApps
     foreach ($profile in $activeProfiles) {
-        $snap = Get-AppSnapshot $profile $microphones
-        Write-Output ('[{0}] running={1} state={2} audio={3} camera={4} mic={5} windows={6}' -f `
+        $snap = Get-AppSnapshot $profile $microphones $mediaApps
+        Write-Output ('[{0}] running={1} state={2} audio={3} camera={4} mic={5} media={6} windows={7}' -f `
                 $profile.Name, $snap.Running, (Get-RawState $snap), $snap.ActiveAudio,
                 (Test-DeviceInUse $webcams $profile.ExeName), (Test-DeviceInUse $microphones $profile.ExeName),
-                $snap.Windows.Count)
+                $(if ($snap.MediaPlaying) { 'active' } else { 'idle' }), $snap.Windows.Count)
         foreach ($w in $snap.Windows) {
             $verdict = Get-WindowVerdict $profile $w.Title $w.Class
+            if ($snap.MediaPlaying -and -not $snap.MicInUse -and $verdict -eq 'meeting') {
+                $verdict = 'meeting (media active -> ignored)'
+            }
             Write-Output ('    [{0}] {1}  -> {2}' -f $w.Class, $w.Title, $verdict)
         }
     }
@@ -562,11 +651,12 @@ while ($true) {
         webcam     = Get-DeviceOwners 'webcam'
         microphone = Get-DeviceOwners 'microphone'
     }
+    $mediaApps = Get-PlayingMediaApps
     $now = Get-Date
 
     foreach ($profile in $activeProfiles) {
         $rt = $runtime[$profile.Id]
-        $snap = Get-AppSnapshot $profile $owners.microphone
+        $snap = Get-AppSnapshot $profile $owners.microphone $mediaApps
         $raw = Get-RawState $snap
 
         # --- запуск/останов приложения ---
