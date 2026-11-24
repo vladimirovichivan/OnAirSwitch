@@ -117,16 +117,14 @@ MESSAGES: dict[str, dict[str, str]] = {
         'menu_update_check': 'Проверить обновления…',
         'menu_update_checking': 'Проверка обновлений…',
         'menu_update_downloading': 'Загрузка обновления {version}…',
-        'menu_update_install': 'Установить обновление {version}…',
+        'menu_update_install': 'Скачать и установить обновление {version}…',
         'menu_version': 'Версия {version}',
         'update_available': 'Доступно обновление {version}',
         'update_up_to_date': 'Установлена последняя версия {version}',
         'update_check_failed': 'Не удалось проверить обновления: {error}',
-        'update_confirm_title': 'Обновление OnAir Lamp',
-        'update_confirm': (
-            'Скачать и установить обновление {version}?\n\n'
-            'Приложение закроется, установщик заменит файлы, затем OnAir Lamp '
-            'запустится снова. Настройки розетки сохранятся.'
+        'update_note': (
+            'OnAir Lamp закроется, установщик заменит файлы и запустит '
+            'приложение снова. Настройки розетки сохранятся.'
         ),
         'update_dev_only': 'Обновление доступно только в установленной копии.',
         'update_download_failed': 'Не удалось скачать обновление: {error}',
@@ -335,16 +333,14 @@ MESSAGES: dict[str, dict[str, str]] = {
         'menu_update_check': 'Check for updates…',
         'menu_update_checking': 'Checking for updates…',
         'menu_update_downloading': 'Downloading update {version}…',
-        'menu_update_install': 'Install update {version}…',
+        'menu_update_install': 'Download and install update {version}…',
         'menu_version': 'Version {version}',
         'update_available': 'Update {version} is available',
         'update_up_to_date': 'The latest version {version} is installed',
         'update_check_failed': 'Failed to check for updates: {error}',
-        'update_confirm_title': 'OnAir Lamp update',
-        'update_confirm': (
-            'Download and install update {version}?\n\n'
-            'The app will close, the installer will replace the files, and then '
-            'OnAir Lamp will start again. The socket settings will be kept.'
+        'update_note': (
+            'OnAir Lamp will close, the installer will replace the files and '
+            'start it again. The socket settings are kept.'
         ),
         'update_dev_only': 'Updates are only available in the installed copy.',
         'update_download_failed': 'Failed to download the update: {error}',

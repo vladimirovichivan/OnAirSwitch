@@ -58,7 +58,6 @@ DEADLINE_ITEMS = (
 
 AUTO_CHECK_SECONDS = 20
 AUTO_CHECK_INTERVAL = 24 * 60 * 60
-UPDATE_CONFIRM_FLAGS = 0x00000004 | 0x00000020 | 0x00010000  # YESNO|QUESTION|SETFOREGROUND
 
 _state: dict = {'control': None, 'status': None, 'meetings': None,
                 'mode': pc.MODE_AUTO, 'until': None, 'alive': False,
@@ -789,26 +788,30 @@ def start_check(manual: bool = True) -> None:
 
 
 def start_install() -> None:
-    """Спросить подтверждение, скачать и запустить установщик обновления."""
+    """Скачать и запустить установщик обновления.
+
+    Отдельного диалога подтверждения нет: пункт меню «Скачать и установить
+    обновление {версия}…» сам и есть подтверждение. Модальный MessageBox,
+    показанный из обработчика меню в потоке трея, остаётся позади активного
+    окна, его кнопки не нажимаются, а вместе с ним блокируется и меню трея
+    (проверено 24.11.2026 на 1.1.3: диалог висел, «Да» и «Нет» не реагировали).
+    """
     info = _state.get('update') or {}
     check = _update_check
+    if info.get('status') == 'downloading':
+        return
     if check is None or not check.available or info.get('status') != 'available':
         start_check(manual=True)
         return
     if not updater.is_installed():
         _notify(i18n.t('update_dev_only'))
         return
-    answer = ctypes.windll.user32.MessageBoxW(
-        None, i18n.t('update_confirm', version=check.version),
-        i18n.t('update_confirm_title'), UPDATE_CONFIRM_FLAGS)
-    log(f'update install: user answered {answer}')
-    if answer != 6:  # IDYES
-        return
 
     version = check.version
     _state['update'] = dict(info, status='downloading', version=version)
     if _icon is not None:
         _icon.update_menu()
+    _notify(i18n.t('menu_update_downloading', version=version))
 
     def worker() -> None:
         try:
@@ -824,6 +827,7 @@ def start_install() -> None:
                 _icon.update_menu()
             return
         log(f'update downloaded: {installer}')
+        _notify(i18n.t('update_note'))
         try:
             updater.launch_installer(installer)
         except updater.UpdateError as exc:
@@ -834,7 +838,9 @@ def start_install() -> None:
                 _icon.update_menu()
             return
         _notify(i18n.t('update_launching', version=version))
-        time.sleep(1.5)
+        # Пауза, чтобы уведомление успело показаться до закрытия трея: helper
+        # перезапустит приложение после установки.
+        time.sleep(4)
         stop_all()
         if _icon is not None:
             _icon.stop()
